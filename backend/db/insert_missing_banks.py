@@ -1,0 +1,250 @@
+"""
+Insert only CBI and UNION bank statements that are missing
+"""
+
+import json
+import os
+from pathlib import Path
+from pymongo import MongoClient
+from bson import ObjectId
+from datetime import datetime
+from typing import Dict, List, Any
+import sys
+
+# Add current directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent))
+
+from schema import (
+    create_bank_statement_doc,
+    create_transaction_doc,
+    BANK_TYPES,
+    normalize_date
+)
+
+# MongoDB Configuration
+MONGO_URI = os.getenv('MONGO_URI', 'mongodb://localhost:27017')
+DATABASE_NAME = os.getenv('DATABASE_NAME', 'bankfusion_db')
+STATEMENTS_COLLECTION = 'bank_statements'
+TRANSACTIONS_COLLECTION = 'bank_transactions'
+
+# Bank name to bank type mapping
+BANK_NAME_MAP = {
+    'State Bank of India': 'SBI',
+    'SBI': 'SBI',
+    'HDFC Bank': 'HDFC',
+    'HDFC': 'HDFC',
+    'Bank of India': 'BOI',
+    'BOI': 'BOI',
+    'Central Bank of India': 'CBI',
+    'Central Bank': 'CBI',
+    'CBI': 'CBI',
+    'Union Bank of India': 'UNION',
+    'Union Bank': 'UNION',
+    'UNION': 'UNION',
+    'Axis Bank': 'AXIS',
+    'AXIS': 'AXIS'
+}
+
+def detect_bank_type(bank_name: str, file_path: str) -> str:
+    """Detect bank type from bank name or file path"""
+    if not bank_name:
+        bank_name = ''
+    
+    bank_name_upper = bank_name.upper()
+    
+    # First, check file path (folder names are more reliable)
+    path_upper = str(file_path).upper()
+    path_lower = str(file_path).lower()
+    
+    # Check for folder names in path (most reliable)
+    if '\\CENTRAL\\' in path_upper or '/CENTRAL/' in path_upper or '\\CENTRAL' in path_upper or '/CENTRAL' in path_upper:
+        return 'CBI'
+    if '\\UNION\\' in path_upper or '/UNION/' in path_upper or '\\UNION' in path_upper or '/UNION' in path_upper:
+        return 'UNION'
+    if '\\UNION\\' in path_lower or '/UNION/' in path_lower or '\\UNION' in path_lower or '/UNION' in path_lower:
+        return 'UNION'
+    
+    # Check file name for UNION or CENTRAL
+    if 'UNION' in path_upper and 'STATEMENT' in path_upper:
+        return 'UNION'
+    if 'CENTRAL' in path_upper and 'STATEMENT' in path_upper:
+        return 'CBI'
+    
+    # Check bank name from metadata
+    for key, value in BANK_NAME_MAP.items():
+        if key.upper() in bank_name_upper:
+            return value
+    
+    # Check file path for other banks
+    for key, value in BANK_NAME_MAP.items():
+        if key.upper() in path_upper:
+            return value
+    
+    # Default fallback
+    return 'SBI'
+
+def extract_bank_specific_data(bank_type: str, account_data: Dict, metadata: Dict) -> Dict:
+    """Extract bank-specific fields"""
+    bank_specific = {}
+    return bank_specific if bank_specific else None
+
+def process_json_file(file_path: str, client: MongoClient) -> Dict[str, Any]:
+    """Process a single JSON file and insert into MongoDB"""
+    db = client[DATABASE_NAME]
+    statements_col = db[STATEMENTS_COLLECTION]
+    transactions_col = db[TRANSACTIONS_COLLECTION]
+    
+    print(f"\n[FILE] Processing: {Path(file_path).name}")
+    
+    # Read JSON file
+    with open(file_path, 'r', encoding='utf-8') as f:
+        data = json.load(f)
+    
+    # Extract data
+    metadata = data.get('metadata', {})
+    account_data = data.get('account', {})
+    transactions = data.get('transactions', [])
+    
+    # Detect bank type
+    bank_name = metadata.get('bank_name', '')
+    bank_type = detect_bank_type(bank_name, file_path)
+    
+    # Only process CBI and UNION
+    if bank_type not in ['CBI', 'UNION']:
+        print(f"   [SKIP] Not CBI or UNION (detected as {bank_type})")
+        return None
+    
+    print(f"   Bank Type: {bank_type}")
+    print(f"   Transactions: {len(transactions)}")
+    
+    # Extract bank-specific data
+    bank_specific = extract_bank_specific_data(bank_type, account_data, metadata)
+    
+    # Create statement document
+    statement_doc = create_bank_statement_doc(bank_type, account_data, metadata, bank_specific)
+    
+    # Insert statement (parent)
+    result = statements_col.insert_one(statement_doc)
+    statement_id = result.inserted_id
+    
+    print(f"   [OK] Statement inserted: {statement_id}")
+    
+    # Insert transactions (normalized)
+    transaction_docs = []
+    inserted_count = 0
+    
+    for idx, txn in enumerate(transactions[:300], 1):  # Limit to 300
+        original = txn.get('original', {})
+        normalized = txn.get('normalized', {})
+        
+        # Create normalized transaction document
+        txn_doc = create_transaction_doc(statement_id, bank_type, original, normalized)
+        transaction_docs.append(txn_doc)
+        
+        if idx % 50 == 0:
+            # Batch insert every 50 transactions
+            transactions_col.insert_many(transaction_docs)
+            inserted_count += len(transaction_docs)
+            transaction_docs = []
+            print(f"   Progress: {idx}/{min(len(transactions), 300)} transactions")
+    
+    # Insert remaining transactions
+    if transaction_docs:
+        transactions_col.insert_many(transaction_docs)
+        inserted_count += len(transaction_docs)
+    
+    print(f"   [OK] Transactions inserted: {inserted_count}")
+    
+    return {
+        'statementId': str(statement_id),
+        'bankType': bank_type,
+        'transactionsInserted': inserted_count
+    }
+
+def find_cbi_union_files(directory_path: str) -> List[Path]:
+    """Find all CBI and UNION bank JSON files"""
+    json_files = []
+    
+    # Find Central Bank files
+    central_files = list(Path(directory_path).rglob('*Central*.json'))
+    central_files += list(Path(directory_path).rglob('*CENTRAL*.json'))
+    central_files += list(Path(directory_path).glob('Central/*.json'))
+    
+    # Find Union Bank files
+    union_files = list(Path(directory_path).rglob('*UNION*.json'))
+    union_files += list(Path(directory_path).rglob('*Union*.json'))
+    union_files += list(Path(directory_path).glob('union/*.json'))
+    union_files += list(Path(directory_path).glob('Union/*.json'))
+    
+    all_files = list(set(central_files + union_files))
+    
+    return all_files
+
+def main():
+    """Main function"""
+    # Connect to MongoDB
+    try:
+        client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+        client.server_info()
+        print(f"[OK] Connected to MongoDB: {MONGO_URI}")
+    except Exception as e:
+        print(f"[ERROR] MongoDB connection failed: {str(e)}")
+        return
+    
+    db = client[DATABASE_NAME]
+    
+    # Get input directory
+    project_root = Path(__file__).parent.parent.parent
+    json_dir = project_root / 'data' / 'normalized_json'
+    
+    if not json_dir.exists():
+        print(f"[ERROR] Directory not found: {json_dir}")
+        return
+    
+    print(f"\n[DIR] Finding CBI and UNION files in: {json_dir}")
+    
+    # Find CBI and UNION files
+    target_files = find_cbi_union_files(str(json_dir))
+    
+    print(f"[SCAN] Found {len(target_files)} CBI/UNION JSON files")
+    
+    if not target_files:
+        print("[INFO] No CBI or UNION files found")
+        return
+    
+    # Process files
+    results = []
+    for json_file in target_files:
+        try:
+            result = process_json_file(str(json_file), client)
+            if result:
+                results.append(result)
+        except Exception as e:
+            print(f"   [ERROR] Error processing {json_file.name}: {str(e)}")
+            continue
+    
+    # Summary
+    print(f"\n{'='*70}")
+    print(f"SUMMARY")
+    print(f"{'='*70}")
+    print(f"Total files processed: {len(results)}")
+    
+    # Count by bank
+    bank_counts = {}
+    total_transactions = 0
+    
+    for result in results:
+        bank = result['bankType']
+        bank_counts[bank] = bank_counts.get(bank, 0) + 1
+        total_transactions += result['transactionsInserted']
+    
+    print(f"\nBy Bank Type:")
+    for bank, count in sorted(bank_counts.items()):
+        print(f"  {bank}: {count} statement(s)")
+    
+    print(f"\nTotal transactions inserted: {total_transactions}")
+    print(f"\n[OK] Insertion complete!")
+
+if __name__ == '__main__':
+    main()
+
