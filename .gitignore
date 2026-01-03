@@ -1,12 +1,14 @@
-# Ignore actual generated files
-data/raw_pdfs/**/*.pdf
-data/extracted_json/**/*.json
+# Environment files
+.env
+frontend/.env
+backend/.env
 
-# Keep folder structure
-!data/**/.gitkeep
+# Python
+__pycache__/
+*.pyc
 
-# Project data (DO NOT COMMIT)
-data/
-normalized_json/
-raw_pdfs/
-outputs/
+# Node
+node_modules/
+
+# Venv
+venv/
