@@ -1,14 +1,31 @@
-# Environment files
-.env
-frontend/.env
-backend/.env
+# Ignore actual generated files
+data/raw_pdfs/**/*.pdf
+data/extracted_json/**/*.json
 
-# Python
+# Keep folder structure
+!data/**/.gitkeep
+
+# Project data (DO NOT COMMIT)
+data/
+normalized_json/
+raw_pdfs/
+outputs/
+
+# Python virtual environments
+.venv/
+venv/
+
+# Runtime / generated data
+data/
+
+# Python cache
 __pycache__/
 *.pyc
 
 # Node
 node_modules/
 
-# Venv
-venv/
+# Env files
+.env
+backend/.env
+frontend/.env
