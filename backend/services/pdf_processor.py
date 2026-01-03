@@ -160,6 +160,10 @@ class PDFProcessor:
                 bank_specific=None
             )
             
+            # Add fileName from PDF path
+            statement_doc['fileName'] = os.path.basename(pdf_path)
+            statement_doc['uploadDate'] = datetime.now().isoformat()
+            
             # Step 6: Insert statement (parent)
             result = statements_col.insert_one(statement_doc)
             statement_id = result.inserted_id

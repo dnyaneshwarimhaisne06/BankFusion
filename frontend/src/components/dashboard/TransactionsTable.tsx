@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { formatINR } from '@/lib/currency';
-import { format } from 'date-fns';
+import { safeFormatDate } from '@/lib/utils';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import {
@@ -197,7 +197,7 @@ export function TransactionsTable({ transactions, loading }: TransactionsTablePr
               paginatedTransactions.map((transaction) => (
                 <TableRow key={transaction.id} className="hover:bg-secondary/50">
                   <TableCell className="font-medium">
-                    {format(new Date(transaction.date), 'dd MMM yyyy')}
+                    {safeFormatDate(transaction.date, 'dd MMM yyyy')}
                   </TableCell>
                   <TableCell className="max-w-xs truncate">
                     {transaction.description}
@@ -213,7 +213,7 @@ export function TransactionsTable({ transactions, loading }: TransactionsTablePr
                       : '-'}
                   </TableCell>
                   <TableCell className="text-right font-medium">
-                    {formatINR(transaction.balance)}
+                    {formatINR(Math.abs(Number(transaction.balance) || 0))}
                   </TableCell>
                   <TableCell>
                     <Badge

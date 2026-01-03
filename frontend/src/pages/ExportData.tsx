@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/integrations/supabase/client';
+import { flaskApi, Statement as ApiStatement, Transaction as ApiTransaction } from '@/lib/api/flask-api';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { 
@@ -18,9 +18,11 @@ import {
   FileText, 
   Building2,
   Calendar,
-  FileDown
+  FileDown,
+  Sparkles
 } from 'lucide-react';
 import { format } from 'date-fns';
+import { safeFormatDate } from '@/lib/utils';
 import { formatINR } from '@/lib/currency';
 import { toast } from 'sonner';
 import jsPDF from 'jspdf';
@@ -51,39 +53,73 @@ export default function ExportData() {
   const [exporting, setExporting] = useState<string | null>(null);
 
   useEffect(() => {
-    if (user) {
-      fetchStatements();
-    }
-  }, [user]);
+    fetchStatements();
+  }, []);
 
   const fetchStatements = async () => {
     try {
-      const { data, error } = await supabase
-        .from('bank_statements')
-        .select('id, bank_name, file_name, upload_date')
-        .order('upload_date', { ascending: false });
-
-      if (error) throw error;
-      setStatements(data || []);
-      if (data && data.length > 0) {
-        setSelectedStatement(data[0].id);
+      const result = await flaskApi.getStatements();
+      
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to fetch statements');
       }
-    } catch (error) {
+
+      const transformed = (result.data || []).map(s => ({
+        id: s._id,
+        bank_name: s.bankType || 'Unknown',
+        file_name: s.fileName || 'Untitled',
+        upload_date: s.uploadDate || s.createdAt || '',
+      }));
+      
+      setStatements(transformed);
+      if (transformed.length > 0) {
+        setSelectedStatement(transformed[0].id);
+      }
+    } catch (error: any) {
       console.error('Error fetching statements:', error);
+      toast.error(error.message || 'Failed to load statements');
     } finally {
       setLoading(false);
     }
   };
 
   const fetchTransactionsForStatement = async (statementId: string): Promise<Transaction[]> => {
-    const { data, error } = await supabase
-      .from('transactions')
-      .select('*')
-      .eq('statement_id', statementId)
-      .order('date', { ascending: true });
+    const result = await flaskApi.getTransactionsByStatement(statementId);
+    
+    if (!result.success) {
+      throw new Error(result.error || 'Failed to fetch transactions');
+    }
 
-    if (error) throw error;
-    return data || [];
+    const apiTransactions = result.data || [];
+    
+    // Convert MongoDB format (amount + direction) to debit/credit
+    return apiTransactions.map((tx: ApiTransaction) => {
+      let debit: number | null = null;
+      let credit: number | null = null;
+      
+      if (tx.amount !== undefined && tx.direction) {
+        const amount = Number(tx.amount) || 0;
+        const direction = tx.direction.toLowerCase();
+        if (direction === 'debit') {
+          debit = amount;
+        } else {
+          credit = amount;
+        }
+      } else {
+        debit = tx.debit !== undefined && tx.debit !== null ? Number(tx.debit) : null;
+        credit = tx.credit !== undefined && tx.credit !== null ? Number(tx.credit) : null;
+      }
+      
+      return {
+        id: tx._id,
+        date: tx.date,
+        description: tx.description || '',
+        debit,
+        credit,
+        balance: tx.balance,
+        category: tx.category,
+      };
+    });
   };
 
   const downloadJSON = (data: object, filename: string) => {
@@ -280,6 +316,82 @@ export default function ExportData() {
     }
   };
 
+  const handleExportAISummary = async () => {
+    if (!selectedStatement) return;
+    
+    setExporting('ai-summary');
+    try {
+      const statement = statements.find(s => s.id === selectedStatement);
+      
+      if (!statement) {
+        throw new Error('Statement not found');
+      }
+      
+      console.log('Fetching AI summary for statement:', selectedStatement);
+      
+      // Fetch AI summary from backend
+      const result = await flaskApi.getAISummary(selectedStatement);
+      
+      console.log('AI Summary result:', result);
+      
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to generate AI summary');
+      }
+
+      const summaryData = result.data;
+      const summary = summaryData.summary || summaryData.fallback_summary;
+      const metadata = summaryData.metadata || {};
+
+      // Create comprehensive AI summary report
+      const aiReport = {
+        report_title: 'AI-Powered Expense Summary Report',
+        generated_at: new Date().toISOString(),
+        generated_by: 'OpenAI GPT-4',
+        bank_details: {
+          bank_name: statement?.bank_name,
+          file_name: statement?.file_name,
+          upload_date: statement?.upload_date,
+        },
+        ai_summary: {
+          executive_summary: summary.executive_summary || '',
+          spending_analysis: summary.spending_analysis || '',
+          category_insights: summary.category_insights || '',
+          trends_patterns: summary.trends_patterns || '',
+          recommendations: summary.recommendations || '',
+          key_highlights: summary.key_highlights || [],
+        },
+        financial_metadata: {
+          total_credit: metadata.total_credit || 0,
+          total_credit_formatted: formatINR(metadata.total_credit || 0),
+          total_debit: metadata.total_debit || 0,
+          total_debit_formatted: formatINR(metadata.total_debit || 0),
+          net_flow: metadata.net_flow || 0,
+          net_flow_formatted: formatINR(metadata.net_flow || 0),
+          transaction_count: metadata.transaction_count || 0,
+          top_categories: metadata.top_categories || [],
+        },
+        note: summaryData.success 
+          ? 'This report was generated using AI analysis of your transaction data.'
+          : 'AI summary unavailable. This is a basic summary report.',
+      };
+
+      downloadJSON(aiReport, `${statement?.bank_name}_ai_summary_${format(new Date(), 'yyyy-MM-dd')}.json`);
+      toast.success('AI summary report exported successfully');
+    } catch (error: any) {
+      console.error('Error exporting AI summary:', error);
+      const errorMessage = error.message || 'Failed to generate AI summary';
+      toast.error(errorMessage);
+      
+      // Show more detailed error in console
+      if (errorMessage.includes('Network error') || errorMessage.includes('fetch')) {
+        console.error('Make sure your backend server is running on http://localhost:5000');
+        console.error('Check browser console for CORS errors');
+      }
+    } finally {
+      setExporting(null);
+    }
+  };
+
   const handleExportPDFReport = async () => {
     if (!selectedStatement) return;
     
@@ -326,7 +438,7 @@ export default function ExportData() {
       doc.setFont('helvetica', 'normal');
       doc.text(`Bank: ${statement?.bank_name}`, 14, 50);
       doc.text(`File: ${statement?.file_name}`, 14, 56);
-      doc.text(`Uploaded: ${format(new Date(statement?.upload_date || ''), 'dd MMM yyyy')}`, 14, 62);
+      doc.text(`Uploaded: ${safeFormatDate(statement?.upload_date, 'dd MMM yyyy', 'Unknown')}`, 14, 62);
       
       // Financial Summary
       doc.setFontSize(14);
@@ -480,7 +592,7 @@ export default function ExportData() {
               {selectedStatementData && (
                 <div className="mt-4 flex items-center gap-2 text-sm text-muted-foreground">
                   <Calendar className="w-4 h-4" />
-                  <span>Uploaded on {format(new Date(selectedStatementData.upload_date), 'dd MMM yyyy')}</span>
+                  <span>Uploaded on {safeFormatDate(selectedStatementData.upload_date, 'dd MMM yyyy')}</span>
                 </div>
               )}
             </Card>
@@ -567,6 +679,33 @@ export default function ExportData() {
                     <FileDown className="w-4 h-4 mr-2" />
                   )}
                   Download PDF
+                </Button>
+              </Card>
+
+              <Card className="p-6 hover:shadow-lg transition-shadow border-2 border-purple-500/20 bg-gradient-to-br from-purple-50/50 to-blue-50/50 dark:from-purple-950/20 dark:to-blue-950/20">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-gradient-to-br from-purple-500/20 to-blue-500/20 text-purple-600 dark:text-purple-400">
+                    <Sparkles className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-foreground">AI Summary Report</h3>
+                    <p className="text-sm text-muted-foreground">AI-powered insights</p>
+                  </div>
+                </div>
+                <p className="text-sm text-muted-foreground mb-4">
+                  Get comprehensive AI-generated expense analysis with spending patterns, category insights, trends, and actionable recommendations.
+                </p>
+                <Button 
+                  className="w-full bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700"
+                  onClick={handleExportAISummary}
+                  disabled={exporting !== null || !selectedStatement}
+                >
+                  {exporting === 'ai-summary' ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <Sparkles className="w-4 h-4 mr-2" />
+                  )}
+                  Generate AI Summary
                 </Button>
               </Card>
             </div>

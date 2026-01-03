@@ -1,8 +1,7 @@
 import { Link } from 'react-router-dom';
-import { format } from 'date-fns';
 import { FileText, ChevronRight, Building2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import { cn } from '@/lib/utils';
+import { cn, safeFormatDate } from '@/lib/utils';
 
 interface Statement {
   id: string;
@@ -100,7 +99,7 @@ export function StatementsList({ statements, loading }: StatementsListProps) {
                   {statement.bank_name}
                 </Badge>
                 <span className="text-xs text-muted-foreground">
-                  {format(new Date(statement.upload_date), 'dd MMM yyyy')}
+                  {safeFormatDate(statement.upload_date, 'dd MMM yyyy')}
                 </span>
               </div>
             </div>

@@ -3,7 +3,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { User, Mail, Calendar, Shield } from 'lucide-react';
-import { format } from 'date-fns';
+import { safeFormatDate } from '@/lib/utils';
 
 export default function Settings() {
   const { user } = useAuth();
@@ -49,9 +49,7 @@ export default function Settings() {
               <Calendar className="w-5 h-5 text-muted-foreground" />
               <div>
                 <p className="font-medium text-foreground">
-                  {user?.created_at 
-                    ? format(new Date(user.created_at), 'dd MMM yyyy') 
-                    : 'N/A'}
+                  {safeFormatDate(user?.created_at, 'dd MMM yyyy', 'N/A')}
                 </p>
                 <p className="text-sm text-muted-foreground">Member Since</p>
               </div>

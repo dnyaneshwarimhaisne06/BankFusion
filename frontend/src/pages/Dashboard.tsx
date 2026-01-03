@@ -6,10 +6,10 @@ import { CategoryChart } from '@/components/dashboard/CategoryChart';
 import { MonthlyTrendChart } from '@/components/dashboard/MonthlyTrendChart';
 import { StatementsList } from '@/components/dashboard/StatementsList';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/integrations/supabase/client';
+import { flaskApi, Statement, CategorySpend, AnalyticsSummary } from '@/lib/api/flask-api';
 import { formatINR } from '@/lib/currency';
-import { TrendingDown, TrendingUp, Receipt, FileText } from 'lucide-react';
-import { format } from 'date-fns';
+import { TrendingDown, TrendingUp, Receipt, FileText, AlertCircle } from 'lucide-react';
+import { safeFormatDate } from '@/lib/utils';
 
 interface DashboardStats {
   totalBalance: number;
@@ -45,6 +45,7 @@ export default function Dashboard() {
   const [monthlyData, setMonthlyData] = useState<MonthlyData[]>([]);
   const [statements, setStatements] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (user) {
@@ -53,86 +54,141 @@ export default function Dashboard() {
   }, [user]);
 
   const fetchDashboardData = async () => {
+    setLoading(true);
+    setError(null);
+    
     try {
-      // Fetch statements
-      const { data: statementsData, error: statementsError } = await supabase
-        .from('bank_statements')
-        .select('*')
-        .order('upload_date', { ascending: false });
+      // Fetch all data from Flask backend in parallel
+      const [statementsResult, summaryResult, categoryResult] = await Promise.all([
+        flaskApi.getStatements(),
+        flaskApi.getSummary(),
+        flaskApi.getCategorySpend(),
+      ]);
 
-      if (statementsError) throw statementsError;
-      setStatements(statementsData || []);
-
-      // Fetch all transactions
-      const { data: transactionsData, error: transactionsError } = await supabase
-        .from('transactions')
-        .select('*');
-
-      if (transactionsError) throw transactionsError;
-
-      const transactions = transactionsData || [];
-
-      // Calculate total balance by summing the latest balance from each statement
-      let totalBalance = 0;
-      const statementIds = [...new Set(transactions.map(t => t.statement_id))];
-      
-      for (const statementId of statementIds) {
-        const statementTxns = transactions
-          .filter(t => t.statement_id === statementId)
-          .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      // Process statements
+      if (statementsResult.success && statementsResult.data) {
+        const stmts = statementsResult.data;
         
-        if (statementTxns.length > 0) {
-          totalBalance += Number(statementTxns[0].balance) || 0;
+        // Transform to format expected by StatementsList
+        const transformedStatements = stmts.map(s => ({
+          id: s._id,
+          bank_name: s.bankType || 'Unknown',
+          file_name: s.fileName || 'Untitled',
+          upload_date: s.uploadDate || s.createdAt || '',
+          status: 'processed',
+        }));
+        
+        setStatements(transformedStatements);
+
+        // Calculate total balance from last transaction of the most recent statement
+        // For multiple statements, we use the most recent one's balance
+        let totalBalance = 0;
+        if (stmts.length > 0) {
+          try {
+            // Get the most recent statement (first in the list as they're sorted by createdAt desc)
+            const mostRecentStatementId = stmts[0]._id;
+            const txnsResult = await flaskApi.getTransactionsByStatement(mostRecentStatementId);
+            if (txnsResult.success && txnsResult.data && txnsResult.data.length > 0) {
+              // Get last transaction balance (transactions are sorted by date ascending)
+              const lastTxn = txnsResult.data[txnsResult.data.length - 1];
+              totalBalance = Math.abs(Number(lastTxn.balance) || 0);
+            }
+          } catch (e) {
+            console.warn('Failed to fetch balance:', e);
+            totalBalance = 0;
+          }
         }
+        
+        setStats(prev => ({
+          ...prev,
+          totalBalance,
+          statementCount: stmts.length,
+        }));
       }
 
-      // Calculate stats
-      const totalDebit = transactions.reduce((sum, t) => sum + (Number(t.debit) || 0), 0);
-      const totalCredit = transactions.reduce((sum, t) => sum + (Number(t.credit) || 0), 0);
+      // Process summary analytics
+      if (summaryResult.success && summaryResult.data) {
+        const summary = summaryResult.data;
+        setStats(prev => ({
+          ...prev,
+          totalCredit: summary.totalCredit || 0,
+          totalDebit: summary.totalDebit || 0,
+          totalExpenses: summary.totalDebit || 0,
+          transactionCount: summary.totalTransactions || summary.transactionCount || 0,
+        }));
+      }
 
-      setStats({
-        totalBalance,
-        totalExpenses: totalDebit,
-        totalCredit,
-        totalDebit,
-        transactionCount: transactions.length,
-        statementCount: statementsData?.length || 0,
-      });
+      // Process category data
+      if (categoryResult.success && categoryResult.data) {
+        const categories = categoryResult.data.map(c => ({
+          name: c.category,
+          value: c.totalAmount,
+        })).sort((a, b) => b.value - a.value);
+        
+        setCategoryData(categories);
+      }
 
-      // Calculate category data
-      const categoryMap = new Map<string, number>();
-      transactions.forEach((t) => {
-        const category = t.category || 'Uncategorized';
-        const debit = Number(t.debit) || 0;
-        if (debit > 0) {
-          categoryMap.set(category, (categoryMap.get(category) || 0) + debit);
-        }
-      });
+      // Fetch transactions for monthly trend (need all transactions)
+      const allStatementsIds = statementsResult.data?.map(s => s._id) || [];
+      
+      if (allStatementsIds.length > 0) {
+        // Get transactions for monthly chart
+        const transactionsPromises = allStatementsIds.slice(0, 5).map(id => 
+          flaskApi.getTransactionsByStatement(id)
+        );
+        
+        const transactionsResults = await Promise.all(transactionsPromises);
+        const allTransactions = transactionsResults
+          .filter(r => r.success && r.data)
+          .flatMap(r => r.data || []);
 
-      const sortedCategories = Array.from(categoryMap.entries())
-        .map(([name, value]) => ({ name, value }))
-        .sort((a, b) => b.value - a.value);
-
-      setCategoryData(sortedCategories);
-
-      // Calculate monthly data
-      const monthlyMap = new Map<string, { credit: number; debit: number }>();
-      transactions.forEach((t) => {
-        const month = format(new Date(t.date), 'MMM yyyy');
-        const existing = monthlyMap.get(month) || { credit: 0, debit: 0 };
-        monthlyMap.set(month, {
-          credit: existing.credit + (Number(t.credit) || 0),
-          debit: existing.debit + (Number(t.debit) || 0),
+        // Calculate monthly data
+        // Convert transactions from MongoDB format (amount + direction) to debit/credit
+        const monthlyMap = new Map<string, { credit: number; debit: number }>();
+        allTransactions.forEach((t: any) => {
+          try {
+            const month = safeFormatDate(t.date, 'MMM yyyy', 'Unknown');
+            if (month !== 'Unknown') {
+              const existing = monthlyMap.get(month) || { credit: 0, debit: 0 };
+              
+              // Handle MongoDB format (amount + direction) or legacy format (debit/credit)
+              let debit = 0;
+              let credit = 0;
+              
+              if (t.amount !== undefined && t.direction) {
+                // MongoDB format
+                const amount = Number(t.amount) || 0;
+                const direction = t.direction.toLowerCase();
+                if (direction === 'debit') {
+                  debit = amount;
+                } else {
+                  credit = amount;
+                }
+              } else {
+                // Legacy format
+                debit = Number(t.debit) || 0;
+                credit = Number(t.credit) || 0;
+              }
+              
+              monthlyMap.set(month, {
+                credit: existing.credit + credit,
+                debit: existing.debit + debit,
+              });
+            }
+          } catch (e) {
+            // Skip invalid dates
+          }
         });
-      });
 
-      const sortedMonthly = Array.from(monthlyMap.entries())
-        .map(([month, data]) => ({ month, ...data }))
-        .sort((a, b) => new Date(a.month).getTime() - new Date(b.month).getTime());
+        const sortedMonthly = Array.from(monthlyMap.entries())
+          .map(([month, data]) => ({ month, ...data }))
+          .sort((a, b) => new Date(a.month).getTime() - new Date(b.month).getTime());
 
-      setMonthlyData(sortedMonthly);
-    } catch (error) {
-      console.error('Error fetching dashboard data:', error);
+        setMonthlyData(sortedMonthly);
+      }
+    } catch (err: any) {
+      console.error('Error fetching dashboard data:', err);
+      setError(err.message || 'Failed to load dashboard data. Is the Flask server running?');
     } finally {
       setLoading(false);
     }
@@ -149,11 +205,22 @@ export default function Dashboard() {
           </p>
         </div>
 
+        {/* Error state */}
+        {error && (
+          <div className="flex items-center gap-3 p-4 rounded-xl bg-destructive/10 text-destructive">
+            <AlertCircle className="w-5 h-5 flex-shrink-0" />
+            <div>
+              <p className="font-medium">Connection Error</p>
+              <p className="text-sm opacity-80">{error}</p>
+            </div>
+          </div>
+        )}
+
         {/* Total Balance Card */}
         <div className="animate-slide-up">
           <BalanceCard
             title="Overall Total Balance"
-            balance={formatINR(stats.totalBalance)}
+            balance={formatINR(Math.abs(stats.totalBalance))}
             subtitle={`Across ${stats.statementCount} bank statement${stats.statementCount !== 1 ? 's' : ''}`}
           />
         </div>

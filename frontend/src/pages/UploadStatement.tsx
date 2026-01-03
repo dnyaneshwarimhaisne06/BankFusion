@@ -4,7 +4,7 @@ import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/integrations/supabase/client';
+import { flaskApi } from '@/lib/api/flask-api';
 import { Upload, FileText, CheckCircle, Loader2, X, Building2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Progress } from '@/components/ui/progress';
@@ -16,29 +16,11 @@ interface UploadState {
   detectedBank: string | null;
   statementId: string | null;
   error: string | null;
+  transactionCount: number;
 }
 
-const bankPatterns: Record<string, RegExp> = {
-  'HDFC Bank': /hdfc/i,
-  'ICICI Bank': /icici/i,
-  'State Bank of India': /sbi|state bank/i,
-  'Axis Bank': /axis/i,
-  'Kotak Mahindra': /kotak/i,
-  'Punjab National Bank': /pnb|punjab national/i,
-  'Bank of Baroda': /baroda|bob/i,
-  'Yes Bank': /yes bank/i,
-  'IndusInd Bank': /indusind/i,
-  'IDBI Bank': /idbi/i,
-};
-
-function detectBankFromFileName(fileName: string): string {
-  for (const [bankName, pattern] of Object.entries(bankPatterns)) {
-    if (pattern.test(fileName)) {
-      return bankName;
-    }
-  }
-  return 'Unknown Bank';
-}
+// Supported banks from Flask backend config
+const SUPPORTED_BANKS = ['SBI', 'HDFC', 'BOI', 'CBI', 'UNION', 'AXIS'];
 
 export default function UploadStatement() {
   const [state, setState] = useState<UploadState>({
@@ -48,6 +30,7 @@ export default function UploadStatement() {
     detectedBank: null,
     statementId: null,
     error: null,
+    transactionCount: 0,
   });
   const [isDragging, setIsDragging] = useState(false);
   
@@ -93,24 +76,23 @@ export default function UploadStatement() {
       return;
     }
 
-    if (file.size > 10 * 1024 * 1024) {
+    if (file.size > 50 * 1024 * 1024) {
       toast({
         title: 'File too large',
-        description: 'Maximum file size is 10MB',
+        description: 'Maximum file size is 50MB',
         variant: 'destructive',
       });
       return;
     }
-
-    const detectedBank = detectBankFromFileName(file.name);
     
     setState({
       file,
       uploading: false,
       progress: 0,
-      detectedBank,
+      detectedBank: null, // Will be detected by backend
       statementId: null,
       error: null,
+      transactionCount: 0,
     });
   };
 
@@ -122,56 +104,41 @@ export default function UploadStatement() {
   };
 
   const handleUpload = async () => {
-    if (!state.file || !user) return;
+    if (!state.file) return;
 
     setState((prev) => ({ ...prev, uploading: true, progress: 10, error: null }));
 
     try {
-      const fileExt = state.file.name.split('.').pop();
-      const fileName = `${crypto.randomUUID()}.${fileExt}`;
-      const filePath = `${user.id}/${fileName}`;
-
       setState((prev) => ({ ...prev, progress: 30 }));
 
-      // Upload file to storage
-      const { error: uploadError } = await supabase.storage
-        .from('statements')
-        .upload(filePath, state.file);
+      // Upload to Flask backend
+      const result = await flaskApi.uploadPdf(state.file);
 
-      if (uploadError) throw uploadError;
+      if (!result.success) {
+        throw new Error(result.error || 'Upload failed');
+      }
 
-      setState((prev) => ({ ...prev, progress: 60 }));
+      setState((prev) => ({ ...prev, progress: 80 }));
 
-      // Create statement record
-      const { data: statementData, error: statementError } = await supabase
-        .from('bank_statements')
-        .insert({
-          user_id: user.id,
-          bank_name: state.detectedBank || 'Unknown Bank',
-          file_path: filePath,
-          file_name: state.file.name,
-          status: 'processing',
-        })
-        .select()
-        .single();
-
-      if (statementError) throw statementError;
-
+      const uploadData = result.data!;
+      
       setState((prev) => ({ 
         ...prev, 
         progress: 100, 
-        statementId: statementData.id,
+        statementId: uploadData.statementId,
+        detectedBank: uploadData.bankType,
+        transactionCount: uploadData.transactionsInserted,
         uploading: false,
       }));
 
       toast({
         title: 'Upload successful!',
-        description: `${state.detectedBank} statement uploaded and is being processed.`,
+        description: `${uploadData.bankType} statement processed. ${uploadData.transactionsInserted} transactions extracted.`,
       });
 
       // Redirect after a short delay
       setTimeout(() => {
-        navigate(`/statements/${statementData.id}`);
+        navigate(`/statements/${uploadData.statementId}`);
       }, 1500);
 
     } catch (error: any) {
@@ -183,7 +150,7 @@ export default function UploadStatement() {
       }));
       toast({
         title: 'Upload failed',
-        description: error.message || 'Failed to upload statement',
+        description: error.message || 'Failed to upload statement. Make sure Flask server is running.',
         variant: 'destructive',
       });
     }
@@ -197,6 +164,7 @@ export default function UploadStatement() {
       detectedBank: null,
       statementId: null,
       error: null,
+      transactionCount: 0,
     });
   };
 
@@ -242,7 +210,7 @@ export default function UploadStatement() {
                   or click to browse from your computer
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  Supports PDF files up to 10MB
+                  Supports PDF files up to 50MB
                 </p>
               </div>
             </label>
@@ -268,20 +236,22 @@ export default function UploadStatement() {
                 )}
               </div>
 
-              {/* Detected bank */}
-              <div className="flex items-center gap-3 p-4 rounded-xl bg-secondary/50">
-                <Building2 className="w-5 h-5 text-muted-foreground" />
-                <div>
-                  <p className="text-sm text-muted-foreground">Detected Bank</p>
-                  <p className="font-medium text-foreground">{state.detectedBank}</p>
+              {/* Detected bank (shown after processing) */}
+              {state.detectedBank && (
+                <div className="flex items-center gap-3 p-4 rounded-xl bg-secondary/50">
+                  <Building2 className="w-5 h-5 text-muted-foreground" />
+                  <div>
+                    <p className="text-sm text-muted-foreground">Detected Bank</p>
+                    <p className="font-medium text-foreground">{state.detectedBank}</p>
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* Progress */}
               {state.uploading && (
                 <div className="space-y-2">
                   <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">Uploading...</span>
+                    <span className="text-muted-foreground">Processing PDF...</span>
                     <span className="font-medium">{state.progress}%</span>
                   </div>
                   <Progress value={state.progress} className="h-2" />
@@ -293,8 +263,10 @@ export default function UploadStatement() {
                 <div className="flex items-center gap-3 p-4 rounded-xl bg-success/10 text-success">
                   <CheckCircle className="w-5 h-5" />
                   <div>
-                    <p className="font-medium">Upload complete!</p>
-                    <p className="text-sm opacity-80">Redirecting to statement...</p>
+                    <p className="font-medium">Processing complete!</p>
+                    <p className="text-sm opacity-80">
+                      {state.transactionCount} transactions extracted. Redirecting...
+                    </p>
                   </div>
                 </div>
               )}
@@ -326,12 +298,12 @@ export default function UploadStatement() {
                     {state.uploading ? (
                       <>
                         <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                        Uploading...
+                        Processing...
                       </>
                     ) : (
                       <>
                         <Upload className="w-4 h-4 mr-2" />
-                        Upload Statement
+                        Upload & Process
                       </>
                     )}
                   </Button>
@@ -345,7 +317,7 @@ export default function UploadStatement() {
         <div className="rounded-2xl border bg-card p-6">
           <h3 className="font-semibold text-foreground mb-4">Supported Banks</h3>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-            {Object.keys(bankPatterns).map((bank) => (
+            {SUPPORTED_BANKS.map((bank) => (
               <div
                 key={bank}
                 className="flex items-center gap-2 px-3 py-2 rounded-lg bg-secondary/50"
@@ -355,6 +327,9 @@ export default function UploadStatement() {
               </div>
             ))}
           </div>
+          <p className="text-xs text-muted-foreground mt-4">
+            Bank type is automatically detected from the PDF content.
+          </p>
         </div>
       </div>
     </DashboardLayout>

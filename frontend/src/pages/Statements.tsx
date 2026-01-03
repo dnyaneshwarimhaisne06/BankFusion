@@ -5,8 +5,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/integrations/supabase/client';
-import { format } from 'date-fns';
+import { flaskApi, Statement } from '@/lib/api/flask-api';
+import { safeFormatDate } from '@/lib/utils';
 import { 
   FileText, 
   Search, 
@@ -14,7 +14,8 @@ import {
   ChevronRight, 
   Upload,
   Trash2,
-  Loader2
+  Loader2,
+  AlertCircle
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -29,34 +30,32 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useToast } from '@/hooks/use-toast';
 
-interface Statement {
+const bankColors: Record<string, string> = {
+  'HDFC': 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
+  'ICICI': 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
+  'SBI': 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
+  'AXIS': 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
+  'BOI': 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+  'CBI': 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-400',
+  'UNION': 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
+  'Default': 'bg-secondary text-secondary-foreground',
+};
+
+interface DisplayStatement {
   id: string;
   bank_name: string;
   file_name: string;
   upload_date: string;
   status: string;
+  transactionCount?: number;
 }
-
-const bankColors: Record<string, string> = {
-  'HDFC': 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
-  'ICICI': 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
-  'SBI': 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
-  'Axis': 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
-  'Kotak': 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
-  'Default': 'bg-secondary text-secondary-foreground',
-};
-
-const statusColors: Record<string, string> = {
-  'processed': 'bg-success/10 text-success border-success/20',
-  'processing': 'bg-warning/10 text-warning border-warning/20',
-  'failed': 'bg-destructive/10 text-destructive border-destructive/20',
-};
 
 export default function Statements() {
   const { user } = useAuth();
   const { toast } = useToast();
-  const [statements, setStatements] = useState<Statement[]>([]);
+  const [statements, setStatements] = useState<DisplayStatement[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -68,16 +67,29 @@ export default function Statements() {
   }, [user]);
 
   const fetchStatements = async () => {
+    setLoading(true);
+    setError(null);
+    
     try {
-      const { data, error } = await supabase
-        .from('bank_statements')
-        .select('*')
-        .order('upload_date', { ascending: false });
+      const result = await flaskApi.getStatements();
+      
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to fetch statements');
+      }
 
-      if (error) throw error;
-      setStatements(data || []);
-    } catch (error) {
-      console.error('Error fetching statements:', error);
+      const transformed = (result.data || []).map(s => ({
+        id: s._id || '',
+        bank_name: s.bankType || 'Unknown',
+        file_name: s.fileName || 'Untitled',
+        upload_date: s.uploadDate || '',
+        status: 'processed',
+        transactionCount: s.transactionCount,
+      }));
+      
+      setStatements(transformed);
+    } catch (err: any) {
+      console.error('Error fetching statements:', err);
+      setError(err.message || 'Failed to load statements');
     } finally {
       setLoading(false);
     }
@@ -88,22 +100,21 @@ export default function Statements() {
     
     setDeleting(true);
     try {
-      const { error } = await supabase
-        .from('bank_statements')
-        .delete()
-        .eq('id', deleteId);
-
-      if (error) throw error;
+      const result = await flaskApi.deleteStatement(deleteId);
+      
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to delete statement');
+      }
 
       setStatements((prev) => prev.filter((s) => s.id !== deleteId));
       toast({
         title: 'Statement deleted',
         description: 'The statement has been successfully deleted.',
       });
-    } catch (error: any) {
+    } catch (err: any) {
       toast({
         title: 'Delete failed',
-        description: error.message || 'Failed to delete statement',
+        description: err.message || 'Failed to delete statement',
         variant: 'destructive',
       });
     } finally {
@@ -112,17 +123,20 @@ export default function Statements() {
     }
   };
 
-  const getBankColor = (bankName: string) => {
+  const getBankColor = (bankName: string | undefined) => {
+    if (!bankName) return bankColors['Default'];
     const bank = Object.keys(bankColors).find((key) =>
-      bankName.toLowerCase().includes(key.toLowerCase())
+      bankName.toUpperCase().includes(key)
     );
     return bankColors[bank || 'Default'];
   };
 
-  const filteredStatements = statements.filter((s) =>
-    s.file_name.toLowerCase().includes(search.toLowerCase()) ||
-    s.bank_name.toLowerCase().includes(search.toLowerCase())
-  );
+  const filteredStatements = statements.filter((s) => {
+    const fileName = (s.file_name || '').toLowerCase();
+    const bankName = (s.bank_name || '').toLowerCase();
+    const searchTerm = search.toLowerCase();
+    return fileName.includes(searchTerm) || bankName.includes(searchTerm);
+  });
 
   if (loading) {
     return (
@@ -152,6 +166,17 @@ export default function Statements() {
             </Button>
           </Link>
         </div>
+
+        {/* Error state */}
+        {error && (
+          <div className="flex items-center gap-3 p-4 rounded-xl bg-destructive/10 text-destructive">
+            <AlertCircle className="w-5 h-5 flex-shrink-0" />
+            <div>
+              <p className="font-medium">Connection Error</p>
+              <p className="text-sm opacity-80">{error}</p>
+            </div>
+          </div>
+        )}
 
         {/* Search */}
         <div className="relative max-w-md animate-slide-up">
@@ -201,21 +226,26 @@ export default function Statements() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="font-medium text-foreground truncate">
-                      {statement.file_name}
+                      {statement.file_name || 'Untitled'}
                     </p>
                     <div className="flex items-center gap-2 mt-1">
                       <Badge variant="secondary" className={cn("text-xs", getBankColor(statement.bank_name))}>
-                        {statement.bank_name}
+                        {statement.bank_name || 'Unknown'}
                       </Badge>
                       <span className="text-xs text-muted-foreground">
-                        {format(new Date(statement.upload_date), 'dd MMM yyyy, hh:mm a')}
+                        {safeFormatDate(statement.upload_date, 'dd MMM yyyy, hh:mm a')}
                       </span>
+                      {statement.transactionCount && (
+                        <span className="text-xs text-muted-foreground">
+                          • {statement.transactionCount} transactions
+                        </span>
+                      )}
                     </div>
                   </div>
                 </Link>
                 <Badge
                   variant="outline"
-                  className={cn("capitalize", statusColors[statement.status] || statusColors['processing'])}
+                  className="bg-success/10 text-success border-success/20 capitalize"
                 >
                   {statement.status}
                 </Badge>

@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { TransactionsTable } from '@/components/dashboard/TransactionsTable';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/integrations/supabase/client';
+import { flaskApi, Statement, Transaction } from '@/lib/api/flask-api';
 import { 
   Select, 
   SelectContent, 
@@ -10,15 +10,15 @@ import {
   SelectTrigger, 
   SelectValue 
 } from '@/components/ui/select';
-import { Loader2, ListFilter } from 'lucide-react';
+import { Loader2, ListFilter, AlertCircle } from 'lucide-react';
 
-interface Statement {
+interface DisplayStatement {
   id: string;
   bank_name: string;
   file_name: string;
 }
 
-interface Transaction {
+interface DisplayTransaction {
   id: string;
   date: string;
   description: string;
@@ -30,11 +30,13 @@ interface Transaction {
 
 export default function Transactions() {
   const { user } = useAuth();
-  const [statements, setStatements] = useState<Statement[]>([]);
-  const [selectedStatement, setSelectedStatement] = useState<string>('all');
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [statements, setStatements] = useState<DisplayStatement[]>([]);
+  const [selectedStatement, setSelectedStatement] = useState<string>('');
+  const [selectedBankType, setSelectedBankType] = useState<string>('');
+  const [transactions, setTransactions] = useState<DisplayTransaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingTransactions, setLoadingTransactions] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (user) {
@@ -43,47 +45,77 @@ export default function Transactions() {
   }, [user]);
 
   useEffect(() => {
-    if (user) {
+    if (user && (selectedStatement || selectedBankType)) {
       fetchTransactions();
     }
-  }, [user, selectedStatement]);
+  }, [user, selectedStatement, selectedBankType]);
 
   const fetchStatements = async () => {
+    setLoading(true);
+    setError(null);
+    
     try {
-      const { data, error } = await supabase
-        .from('bank_statements')
-        .select('id, bank_name, file_name')
-        .order('upload_date', { ascending: false });
+      const result = await flaskApi.getStatements();
+      
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to fetch statements');
+      }
 
-      if (error) throw error;
-      setStatements(data || []);
-    } catch (error) {
-      console.error('Error fetching statements:', error);
+      const transformed = (result.data || []).map(s => ({
+        id: s._id,
+        bank_name: s.bankType || 'Unknown',
+        file_name: s.fileName || 'Untitled',
+      }));
+      
+      setStatements(transformed);
+      
+      // Select first statement by default
+      if (transformed.length > 0 && !selectedStatement) {
+        setSelectedStatement(transformed[0].id);
+      }
+    } catch (err: any) {
+      console.error('Error fetching statements:', err);
+      setError(err.message || 'Failed to load statements');
     } finally {
       setLoading(false);
     }
   };
 
   const fetchTransactions = async () => {
+    if (!selectedStatement && !selectedBankType) return;
+    
     setLoadingTransactions(true);
     try {
-      let query = supabase
-        .from('transactions')
-        .select('*')
-        .order('date', { ascending: false });
-
-      if (selectedStatement !== 'all') {
-        query = query.eq('statement_id', selectedStatement);
+      const result = await flaskApi.getTransactions({
+        statementId: selectedStatement || undefined,
+        bankType: selectedBankType || undefined,
+      });
+      
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to fetch transactions');
       }
 
-      const { data, error } = await query;
-      if (error) throw error;
-      setTransactions(data || []);
-    } catch (error) {
-      console.error('Error fetching transactions:', error);
+      const transformed = (result.data || []).map(t => ({
+        id: t._id,
+        date: t.date,
+        description: t.description,
+        debit: t.debit,
+        credit: t.credit,
+        balance: t.balance,
+        category: t.category,
+      }));
+      
+      setTransactions(transformed);
+    } catch (err: any) {
+      console.error('Error fetching transactions:', err);
     } finally {
       setLoadingTransactions(false);
     }
+  };
+
+  const handleStatementChange = (value: string) => {
+    setSelectedStatement(value);
+    setSelectedBankType(''); // Clear bank filter when selecting statement
   };
 
   if (loading) {
@@ -107,18 +139,28 @@ export default function Transactions() {
           </p>
         </div>
 
+        {/* Error state */}
+        {error && (
+          <div className="flex items-center gap-3 p-4 rounded-xl bg-destructive/10 text-destructive">
+            <AlertCircle className="w-5 h-5 flex-shrink-0" />
+            <div>
+              <p className="font-medium">Connection Error</p>
+              <p className="text-sm opacity-80">{error}</p>
+            </div>
+          </div>
+        )}
+
         {/* Statement selector */}
         <div className="flex items-center gap-4 p-4 rounded-xl bg-card border border-border">
           <div className="flex items-center gap-2 text-muted-foreground">
             <ListFilter className="w-5 h-5" />
             <span className="text-sm font-medium">Filter by Statement:</span>
           </div>
-          <Select value={selectedStatement} onValueChange={setSelectedStatement}>
+          <Select value={selectedStatement} onValueChange={handleStatementChange}>
             <SelectTrigger className="w-[300px]">
               <SelectValue placeholder="Select a statement" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All Statements</SelectItem>
               {statements.map((statement) => (
                 <SelectItem key={statement.id} value={statement.id}>
                   {statement.bank_name} - {statement.file_name}

@@ -4,27 +4,17 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { supabase } from '@/integrations/supabase/client';
+import { flaskApi } from '@/lib/api/flask-api';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
-import { Download, FileJson, ChevronRight, ChevronDown, Loader2 } from 'lucide-react';
+import { Download, FileJson, ChevronRight, ChevronDown, Loader2, AlertCircle } from 'lucide-react';
 import { formatINR } from '@/lib/currency';
 
-interface Statement {
+interface DisplayStatement {
   id: string;
   bank_name: string;
   file_name: string;
   upload_date: string;
-}
-
-interface Transaction {
-  id: string;
-  date: string;
-  description: string;
-  debit: number | null;
-  credit: number | null;
-  balance: number | null;
-  category: string | null;
 }
 
 interface CollapsibleJsonProps {
@@ -35,7 +25,9 @@ interface CollapsibleJsonProps {
 function CollapsibleJson({ data, level = 0 }: CollapsibleJsonProps) {
   const [expanded, setExpanded] = useState(level < 2);
   
-  if (data === null) return <span className="text-muted-foreground">null</span>;
+  if (data === null || data === undefined) {
+    return <span className="text-muted-foreground">{data === null ? 'null' : 'undefined'}</span>;
+  }
   if (typeof data === 'boolean') return <span className="text-primary">{data.toString()}</span>;
   if (typeof data === 'number') return <span className="text-success">{data}</span>;
   if (typeof data === 'string') return <span className="text-warning">"{data}"</span>;
@@ -98,11 +90,13 @@ function CollapsibleJson({ data, level = 0 }: CollapsibleJsonProps) {
 }
 
 export default function JsonViewer() {
-  const [statements, setStatements] = useState<Statement[]>([]);
+  const [statements, setStatements] = useState<DisplayStatement[]>([]);
   const [selectedStatementId, setSelectedStatementId] = useState<string>('');
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [normalizedData, setNormalizedData] = useState<any>(null);
+  const [categorizedData, setCategorizedData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [loadingData, setLoadingData] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const { user } = useAuth();
   const { toast } = useToast();
 
@@ -112,112 +106,67 @@ export default function JsonViewer() {
 
   useEffect(() => {
     if (selectedStatementId) {
-      fetchTransactions(selectedStatementId);
+      fetchJsonData(selectedStatementId);
     }
   }, [selectedStatementId]);
 
   const fetchStatements = async () => {
+    setLoading(true);
+    setError(null);
+    
     try {
-      const { data, error } = await supabase
-        .from('bank_statements')
-        .select('id, bank_name, file_name, upload_date')
-        .eq('user_id', user?.id)
-        .eq('status', 'completed')
-        .order('upload_date', { ascending: false });
-
-      if (error) throw error;
-      setStatements(data || []);
-      if (data && data.length > 0) {
-        setSelectedStatementId(data[0].id);
+      const result = await flaskApi.getStatements();
+      
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to fetch statements');
       }
-    } catch (error: any) {
-      console.error('Error fetching statements:', error);
+
+      const transformed = (result.data || []).map(s => ({
+        id: s._id,
+        bank_name: s.bankType || 'Unknown',
+        file_name: s.fileName || 'Untitled',
+        upload_date: s.uploadDate || s.createdAt || new Date().toISOString(),
+      }));
+      
+      setStatements(transformed);
+      
+      if (transformed.length > 0) {
+        setSelectedStatementId(transformed[0].id);
+      }
+    } catch (err: any) {
+      console.error('Error fetching statements:', err);
+      setError(err.message || 'Failed to load statements');
     } finally {
       setLoading(false);
     }
   };
 
-  const fetchTransactions = async (statementId: string) => {
+  const fetchJsonData = async (statementId: string) => {
     setLoadingData(true);
     try {
-      const { data, error } = await supabase
-        .from('transactions')
-        .select('*')
-        .eq('statement_id', statementId)
-        .order('date', { ascending: true });
+      const [normalizedResult, categorizedResult] = await Promise.all([
+        flaskApi.getNormalizedJson(statementId),
+        flaskApi.getCategorizedJson(statementId),
+      ]);
 
-      if (error) throw error;
-      setTransactions(data || []);
-    } catch (error: any) {
-      console.error('Error fetching transactions:', error);
+      if (normalizedResult.success) {
+        setNormalizedData(normalizedResult.data);
+      }
+      
+      if (categorizedResult.success) {
+        setCategorizedData(categorizedResult.data);
+      }
+    } catch (err: any) {
+      console.error('Error fetching JSON data:', err);
     } finally {
       setLoadingData(false);
     }
   };
 
-  const getNormalizedJson = () => {
-    const statement = statements.find(s => s.id === selectedStatementId);
-    return {
-      statement: {
-        id: selectedStatementId,
-        bank_name: statement?.bank_name,
-        file_name: statement?.file_name,
-        upload_date: statement?.upload_date,
-      },
-      transactions: transactions.map(tx => ({
-        date: tx.date,
-        description: tx.description,
-        debit: tx.debit,
-        credit: tx.credit,
-        balance: tx.balance,
-      })),
-      summary: {
-        total_transactions: transactions.length,
-        total_debit: transactions.reduce((sum, tx) => sum + (tx.debit || 0), 0),
-        total_credit: transactions.reduce((sum, tx) => sum + (tx.credit || 0), 0),
-        final_balance: transactions.length > 0 ? transactions[transactions.length - 1].balance : 0,
-      },
-    };
-  };
-
-  const getCategorizedJson = () => {
-    const statement = statements.find(s => s.id === selectedStatementId);
-    const grouped: Record<string, any[]> = {};
-    
-    transactions.forEach(tx => {
-      const category = tx.category || 'Uncategorized';
-      if (!grouped[category]) {
-        grouped[category] = [];
-      }
-      grouped[category].push({
-        date: tx.date,
-        description: tx.description,
-        debit: tx.debit,
-        credit: tx.credit,
-        balance: tx.balance,
-      });
-    });
-
-    const categorySummary = Object.entries(grouped).map(([category, txs]) => ({
-      category,
-      transaction_count: txs.length,
-      total_debit: txs.reduce((sum, tx) => sum + (tx.debit || 0), 0),
-      total_credit: txs.reduce((sum, tx) => sum + (tx.credit || 0), 0),
-    }));
-
-    return {
-      statement: {
-        id: selectedStatementId,
-        bank_name: statement?.bank_name,
-        file_name: statement?.file_name,
-      },
-      categories: grouped,
-      category_summary: categorySummary,
-    };
-  };
-
   const downloadJson = (type: 'normalized' | 'categorized') => {
-    const data = type === 'normalized' ? getNormalizedJson() : getCategorizedJson();
+    const data = type === 'normalized' ? normalizedData : categorizedData;
+    if (!data) return;
+    
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -259,14 +208,36 @@ export default function JsonViewer() {
               <SelectValue placeholder="Select statement" />
             </SelectTrigger>
             <SelectContent>
-              {statements.map((statement) => (
-                <SelectItem key={statement.id} value={statement.id}>
-                  {statement.bank_name} - {new Date(statement.upload_date).toLocaleDateString()}
-                </SelectItem>
-              ))}
+              {statements.map((statement) => {
+                let dateDisplay = 'Invalid Date';
+                try {
+                  const date = new Date(statement.upload_date);
+                  if (!isNaN(date.getTime())) {
+                    dateDisplay = date.toLocaleDateString();
+                  }
+                } catch (e) {
+                  // Keep "Invalid Date" if parsing fails
+                }
+                return (
+                  <SelectItem key={statement.id} value={statement.id}>
+                    {statement.bank_name} - {dateDisplay}
+                  </SelectItem>
+                );
+              })}
             </SelectContent>
           </Select>
         </div>
+
+        {/* Error state */}
+        {error && (
+          <div className="flex items-center gap-3 p-4 rounded-xl bg-destructive/10 text-destructive">
+            <AlertCircle className="w-5 h-5 flex-shrink-0" />
+            <div>
+              <p className="font-medium">Connection Error</p>
+              <p className="text-sm opacity-80">{error}</p>
+            </div>
+          </div>
+        )}
 
         {statements.length === 0 ? (
           <Card className="p-12 text-center">
@@ -285,7 +256,7 @@ export default function JsonViewer() {
               <Card className="p-4">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="font-semibold">Normalized Transaction Data</h3>
-                  <Button onClick={() => downloadJson('normalized')} size="sm">
+                  <Button onClick={() => downloadJson('normalized')} size="sm" disabled={!normalizedData}>
                     <Download className="w-4 h-4 mr-2" />
                     Download JSON
                   </Button>
@@ -295,9 +266,13 @@ export default function JsonViewer() {
                   <div className="flex items-center justify-center h-32">
                     <Loader2 className="w-6 h-6 animate-spin text-primary" />
                   </div>
-                ) : (
+                ) : normalizedData ? (
                   <div className="bg-secondary/30 rounded-lg p-4 overflow-auto max-h-[500px] font-mono text-sm">
-                    <CollapsibleJson data={getNormalizedJson()} />
+                    <CollapsibleJson data={normalizedData} />
+                  </div>
+                ) : (
+                  <div className="text-center text-muted-foreground py-8">
+                    No data available
                   </div>
                 )}
               </Card>
@@ -307,7 +282,7 @@ export default function JsonViewer() {
               <Card className="p-4">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="font-semibold">Categorized Transaction Data</h3>
-                  <Button onClick={() => downloadJson('categorized')} size="sm">
+                  <Button onClick={() => downloadJson('categorized')} size="sm" disabled={!categorizedData}>
                     <Download className="w-4 h-4 mr-2" />
                     Download JSON
                   </Button>
@@ -317,9 +292,13 @@ export default function JsonViewer() {
                   <div className="flex items-center justify-center h-32">
                     <Loader2 className="w-6 h-6 animate-spin text-primary" />
                   </div>
-                ) : (
+                ) : categorizedData ? (
                   <div className="bg-secondary/30 rounded-lg p-4 overflow-auto max-h-[500px] font-mono text-sm">
-                    <CollapsibleJson data={getCategorizedJson()} />
+                    <CollapsibleJson data={categorizedData} />
+                  </div>
+                ) : (
+                  <div className="text-center text-muted-foreground py-8">
+                    No data available
                   </div>
                 )}
               </Card>

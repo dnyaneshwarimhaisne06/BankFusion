@@ -114,3 +114,80 @@ def get_summary():
             error="Internal server error"
         )), 500
 
+@analytics_bp.route('/analytics/ai-summary/<statement_id>', methods=['GET'])
+def get_ai_summary(statement_id: str):
+    """Generate AI-powered expense summary report for a statement"""
+    try:
+        from db.repositories import StatementRepository, TransactionRepository
+        from services.ai_summary import generate_expense_summary
+        
+        # Fetch statement
+        statement = StatementRepository.get_by_id(statement_id)
+        if not statement:
+            return jsonify(create_response(
+                success=False,
+                error=f"Statement not found: {statement_id}"
+            )), 404
+        
+        # Fetch transactions
+        transactions = TransactionRepository.get_by_statement_id(statement_id, limit=1000)
+        
+        # Prepare statement data
+        statement_data = {
+            'bank_name': statement.get('bankType', 'Unknown'),
+            'account_number': statement.get('accountNumber'),
+            'account_holder': statement.get('accountHolder'),
+            'file_name': statement.get('fileName', 'Untitled'),
+        }
+        
+        # Convert transactions to format expected by AI summary
+        transaction_list = []
+        for txn in transactions:
+            # Convert MongoDB format (amount + direction) to debit/credit
+            debit = None
+            credit = None
+            
+            if txn.get('amount') is not None and txn.get('direction'):
+                amount = float(txn.get('amount', 0))
+                direction = txn.get('direction', '').lower()
+                if direction == 'debit':
+                    debit = amount
+                else:
+                    credit = amount
+            else:
+                # Legacy format
+                debit = txn.get('debit')
+                credit = txn.get('credit')
+            
+            transaction_list.append({
+                'date': str(txn.get('date', '')),
+                'description': txn.get('description', ''),
+                'debit': debit,
+                'credit': credit,
+                'balance': txn.get('balance'),
+                'category': txn.get('category', 'Uncategorized'),
+            })
+        
+        # Generate AI summary
+        summary_result = generate_expense_summary(statement_data, transaction_list)
+        
+        if summary_result.get('success'):
+            return jsonify(create_response(
+                success=True,
+                data=summary_result
+            )), 200
+        else:
+            # Return fallback summary if AI fails
+            return jsonify(create_response(
+                success=True,
+                data=summary_result,
+                message="AI summary unavailable, using basic summary"
+            )), 200
+            
+    except Exception as e:
+        logger.error(f"Error generating AI summary: {str(e)}")
+        return jsonify(create_response(
+            success=False,
+            error="Internal server error"
+        )), 500
+

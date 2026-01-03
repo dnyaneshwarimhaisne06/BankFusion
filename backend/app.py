@@ -73,7 +73,8 @@ def health_check():
                 'analytics': {
                     'category-spend': '/api/analytics/category-spend',
                     'bank-wise-spend': '/api/analytics/bank-wise-spend',
-                    'summary': '/api/analytics/summary'
+                    'summary': '/api/analytics/summary',
+                    'ai-summary': '/api/analytics/ai-summary/<statement_id>'
                 }
             }
         }

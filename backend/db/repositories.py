@@ -61,6 +61,42 @@ class StatementRepository:
         collection = db[STATEMENTS_COLLECTION]
         
         return collection.count_documents({'_id': obj_id}) > 0
+    
+    @staticmethod
+    def delete(statement_id: str) -> bool:
+        """Delete a statement and all its associated transactions"""
+        try:
+            obj_id = ObjectId(statement_id)
+        except InvalidId:
+            raise ValueError(f"Invalid statement ID: {statement_id}")
+        
+        db = MongoDB.get_db()
+        statements_col = db[STATEMENTS_COLLECTION]
+        transactions_col = db[TRANSACTIONS_COLLECTION]
+        
+        try:
+            # First, check if statement exists
+            statement = statements_col.find_one({'_id': obj_id})
+            if not statement:
+                return False
+            
+            # Delete all associated transactions
+            delete_result = transactions_col.delete_many({'statementId': obj_id})
+            logger.info(f"Deleted {delete_result.deleted_count} transactions for statement {statement_id}")
+            
+            # Delete the statement
+            result = statements_col.delete_one({'_id': obj_id})
+            
+            if result.deleted_count > 0:
+                logger.info(f"Successfully deleted statement {statement_id}")
+                return True
+            else:
+                logger.warning(f"Statement {statement_id} not found for deletion")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Error deleting statement {statement_id}: {str(e)}")
+            raise
 
 class TransactionRepository:
     """Repository for bank_transactions collection"""

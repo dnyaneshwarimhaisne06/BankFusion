@@ -3,11 +3,12 @@ import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { CategoryChart } from '@/components/dashboard/CategoryChart';
 import { MonthlyTrendChart } from '@/components/dashboard/MonthlyTrendChart';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/integrations/supabase/client';
+import { flaskApi } from '@/lib/api/flask-api';
 import { formatINR } from '@/lib/currency';
-import { format } from 'date-fns';
+import { safeFormatDate } from '@/lib/utils';
 import { Loader2, PieChart, TrendingUp, ArrowUpRight, ArrowDownRight } from 'lucide-react';
 import { Card } from '@/components/ui/card';
+import { toast } from 'sonner';
 
 interface CategoryData {
   name: string;
@@ -28,56 +29,87 @@ export default function Analytics() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (user) {
-      fetchAnalyticsData();
-    }
-  }, [user]);
+    fetchAnalyticsData();
+  }, []);
 
   const fetchAnalyticsData = async () => {
+    setLoading(true);
     try {
-      const { data: transactions, error } = await supabase
-        .from('transactions')
-        .select('*');
+      // Fetch category spend data from Flask API
+      const categoryResult = await flaskApi.getCategorySpend();
+      
+      if (categoryResult.success && categoryResult.data) {
+        const categories = categoryResult.data.map(c => ({
+          name: c.category,
+          value: c.totalAmount,
+        })).sort((a, b) => b.value - a.value);
+        
+        setCategoryData(categories);
+        setTopCategories(categories.slice(0, 5));
+      }
 
-      if (error) throw error;
+      // Fetch all statements to get transactions for monthly data
+      const statementsResult = await flaskApi.getStatements();
+      
+      if (statementsResult.success && statementsResult.data) {
+        const statementIds = statementsResult.data.map(s => s._id);
+        
+        // Fetch transactions for all statements
+        const transactionPromises = statementIds.map(id => 
+          flaskApi.getTransactionsByStatement(id)
+        );
+        
+        const transactionResults = await Promise.all(transactionPromises);
+        const allTransactions = transactionResults
+          .filter(r => r.success && r.data)
+          .flatMap(r => r.data || []);
 
-      const txns = transactions || [];
-
-      // Calculate category data
-      const categoryMap = new Map<string, number>();
-      txns.forEach((t) => {
-        const category = t.category || 'Uncategorized';
-        const debit = Number(t.debit) || 0;
-        if (debit > 0) {
-          categoryMap.set(category, (categoryMap.get(category) || 0) + debit);
-        }
-      });
-
-      const sortedCategories = Array.from(categoryMap.entries())
-        .map(([name, value]) => ({ name, value }))
-        .sort((a, b) => b.value - a.value);
-
-      setCategoryData(sortedCategories);
-      setTopCategories(sortedCategories.slice(0, 5));
-
-      // Calculate monthly data
-      const monthlyMap = new Map<string, { credit: number; debit: number }>();
-      txns.forEach((t) => {
-        const month = format(new Date(t.date), 'MMM yyyy');
-        const existing = monthlyMap.get(month) || { credit: 0, debit: 0 };
-        monthlyMap.set(month, {
-          credit: existing.credit + (Number(t.credit) || 0),
-          debit: existing.debit + (Number(t.debit) || 0),
+        // Convert MongoDB format (amount + direction) to debit/credit
+        const monthlyMap = new Map<string, { credit: number; debit: number }>();
+        
+        allTransactions.forEach((t: any) => {
+          let debit = 0;
+          let credit = 0;
+          
+          // Handle MongoDB format (amount + direction)
+          if (t.amount !== undefined && t.direction) {
+            const amount = Number(t.amount) || 0;
+            const direction = t.direction.toLowerCase();
+            if (direction === 'debit') {
+              debit = amount;
+            } else {
+              credit = amount;
+            }
+          } else {
+            // Legacy format
+            debit = Number(t.debit) || 0;
+            credit = Number(t.credit) || 0;
+          }
+          
+          const month = safeFormatDate(t.date, 'MMM yyyy', 'Unknown');
+          if (month !== 'Unknown') {
+            const existing = monthlyMap.get(month) || { credit: 0, debit: 0 };
+            monthlyMap.set(month, {
+              credit: existing.credit + credit,
+              debit: existing.debit + debit,
+            });
+          }
         });
-      });
 
-      const sortedMonthly = Array.from(monthlyMap.entries())
-        .map(([month, data]) => ({ month, ...data }))
-        .sort((a, b) => new Date(a.month).getTime() - new Date(b.month).getTime());
+        const sortedMonthly = Array.from(monthlyMap.entries())
+          .map(([month, data]) => ({ month, ...data }))
+          .sort((a, b) => {
+            // Sort by date
+            const dateA = new Date(a.month);
+            const dateB = new Date(b.month);
+            return dateA.getTime() - dateB.getTime();
+          });
 
-      setMonthlyData(sortedMonthly);
-    } catch (error) {
+        setMonthlyData(sortedMonthly);
+      }
+    } catch (error: any) {
       console.error('Error fetching analytics data:', error);
+      toast.error('Failed to load analytics data. Make sure the backend server is running.');
     } finally {
       setLoading(false);
     }

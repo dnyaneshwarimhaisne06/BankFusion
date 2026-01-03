@@ -78,3 +78,42 @@ def get_statement(statement_id: str):
             error="Internal server error"
         )), 500
 
+@statements_bp.route('/statements/<statement_id>', methods=['DELETE'])
+def delete_statement(statement_id: str):
+    """Delete a statement and all its associated transactions"""
+    try:
+        # Check if statement exists
+        statement = StatementRepository.get_by_id(statement_id)
+        
+        if not statement:
+            return jsonify(create_response(
+                success=False,
+                error=f"Statement not found: {statement_id}"
+            )), 404
+        
+        # Delete statement and associated transactions
+        deleted = StatementRepository.delete(statement_id)
+        
+        if deleted:
+            return jsonify(create_response(
+                success=True,
+                message=f"Statement {statement_id} and all associated transactions deleted successfully"
+            )), 200
+        else:
+            return jsonify(create_response(
+                success=False,
+                error="Failed to delete statement"
+            )), 500
+        
+    except ValueError as e:
+        return jsonify(create_response(
+            success=False,
+            error=str(e)
+        )), 400
+    except Exception as e:
+        logger.error(f"Error in delete_statement: {str(e)}")
+        return jsonify(create_response(
+            success=False,
+            error="Internal server error"
+        )), 500
+

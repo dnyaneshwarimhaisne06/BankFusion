@@ -9,8 +9,9 @@ import { TransactionsTable } from '@/components/dashboard/TransactionsTable';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/integrations/supabase/client';
+import { flaskApi, Statement as ApiStatement, Transaction as ApiTransaction } from '@/lib/api/flask-api';
 import { formatINR } from '@/lib/currency';
+import { safeFormatDate } from '@/lib/utils';
 import { format } from 'date-fns';
 import { 
   ArrowLeft, 
@@ -92,38 +93,88 @@ export default function StatementDetail() {
   }, [user, id]);
 
   const fetchStatementData = async () => {
-    try {
-      // Fetch statement
-      const { data: statementData, error: statementError } = await supabase
-        .from('bank_statements')
-        .select('*')
-        .eq('id', id)
-        .maybeSingle();
+    if (!id) {
+      setLoading(false);
+      return;
+    }
 
-      if (statementError) throw statementError;
-      if (!statementData) {
+    try {
+      // Fetch statement from Flask API
+      const statementResult = await flaskApi.getStatement(id);
+      
+      if (!statementResult.success || !statementResult.data) {
+        console.error('Statement not found:', statementResult.error);
         setLoading(false);
         return;
       }
+
+      const apiStatement = statementResult.data;
       
-      setStatement(statementData);
+      // Transform API statement to component format
+      setStatement({
+        id: apiStatement._id,
+        bank_name: apiStatement.bankType || 'Unknown',
+        file_name: apiStatement.fileName || 'Untitled',
+        upload_date: apiStatement.uploadDate || '',
+        status: 'processed',
+      });
 
       // Fetch transactions for this statement
-      const { data: transactionsData, error: transactionsError } = await supabase
-        .from('transactions')
-        .select('*')
-        .eq('statement_id', id)
-        .order('date', { ascending: false });
-
-      if (transactionsError) throw transactionsError;
+      const transactionsResult = await flaskApi.getTransactionsByStatement(id);
       
-      const txns = transactionsData || [];
+      if (!transactionsResult.success) {
+        throw new Error(transactionsResult.error || 'Failed to fetch transactions');
+      }
+      
+      const apiTransactions = transactionsResult.data || [];
+      
+      // Transform API transactions to component format
+      // MongoDB uses 'amount' and 'direction', so we need to convert to debit/credit
+      const txns = apiTransactions.map((t: ApiTransaction) => {
+        // Check if MongoDB format (amount + direction) or legacy format (debit/credit)
+        const hasAmount = t.amount !== undefined && t.amount !== null;
+        const hasDirection = t.direction !== undefined && t.direction !== null;
+        
+        let debit: number | null = null;
+        let credit: number | null = null;
+        
+        if (hasAmount && hasDirection) {
+          // MongoDB format: use amount and direction
+          const amount = Number(t.amount) || 0;
+          const direction = t.direction.toLowerCase();
+          if (direction === 'debit') {
+            debit = amount;
+            credit = null;
+          } else {
+            debit = null;
+            credit = amount;
+          }
+        } else {
+          // Legacy format: use debit/credit fields
+          debit = t.debit !== undefined && t.debit !== null ? Number(t.debit) : null;
+          credit = t.credit !== undefined && t.credit !== null ? Number(t.credit) : null;
+        }
+        
+        return {
+          id: t._id,
+          date: t.date,
+          description: t.description || '',
+          debit,
+          credit,
+          balance: t.balance,
+          category: t.category,
+        };
+      });
+      
+      // Sort transactions by date (oldest first) to get correct last balance
+      txns.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+      
       setTransactions(txns);
 
       // Calculate stats - balance is from the last transaction (most recent)
       const totalDebit = txns.reduce((sum, t) => sum + (Number(t.debit) || 0), 0);
       const totalCredit = txns.reduce((sum, t) => sum + (Number(t.credit) || 0), 0);
-      const lastBalance = txns.length > 0 ? Number(txns[0].balance) || 0 : 0;
+      const lastBalance = txns.length > 0 ? Number(txns[txns.length - 1].balance) || 0 : 0;
 
       setStats({
         totalBalance: lastBalance,
@@ -151,7 +202,7 @@ export default function StatementDetail() {
       // Calculate monthly data
       const monthlyMap = new Map<string, { credit: number; debit: number }>();
       txns.forEach((t) => {
-        const month = format(new Date(t.date), 'MMM yyyy');
+        const month = safeFormatDate(t.date, 'MMM yyyy', 'Unknown');
         const existing = monthlyMap.get(month) || { credit: 0, debit: 0 };
         monthlyMap.set(month, {
           credit: existing.credit + (Number(t.credit) || 0),
@@ -164,8 +215,13 @@ export default function StatementDetail() {
         .sort((a, b) => new Date(a.month).getTime() - new Date(b.month).getTime());
 
       setMonthlyData(sortedMonthly);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error fetching statement data:', error);
+      toast({
+        title: 'Failed to load statement',
+        description: error.message || 'Could not fetch statement data',
+        variant: 'destructive',
+      });
     } finally {
       setLoading(false);
     }
@@ -291,7 +347,7 @@ export default function StatementDetail() {
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Calendar className="w-4 h-4" />
-                Uploaded {format(new Date(statement.upload_date), 'dd MMM yyyy, hh:mm a')}
+                Uploaded {safeFormatDate(statement.upload_date, 'dd MMM yyyy, hh:mm a')}
               </div>
               <Button 
                 variant="outline" 
@@ -314,7 +370,7 @@ export default function StatementDetail() {
         <div className="animate-slide-up">
           <BalanceCard
             title="Statement Balance"
-            balance={formatINR(stats.totalBalance)}
+            balance={formatINR(Math.abs(stats.totalBalance))}
             subtitle="Balance from last transaction"
           />
         </div>
