@@ -24,18 +24,29 @@ export default function Auth() {
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   
-  const { signIn, signUp, user } = useAuth();
+  const { signIn, signUp, user, resendConfirmationEmail } = useAuth();
+  const [showResendEmail, setShowResendEmail] = useState(false);
   const { toast } = useToast();
   const navigate = useNavigate();
   const location = useLocation();
 
   const from = (location.state as any)?.from?.pathname || '/dashboard';
+  const emailVerified = (location.state as any)?.emailVerified;
 
   useEffect(() => {
     if (user) {
       navigate(from, { replace: true });
     }
   }, [user, navigate, from]);
+
+  useEffect(() => {
+    if (emailVerified) {
+      toast({
+        title: 'Email Verified',
+        description: 'Your email has been verified successfully. Please log in.',
+      });
+    }
+  }, [emailVerified, toast]);
 
   const validateForm = () => {
     const newErrors: Record<string, string> = {};
@@ -78,27 +89,43 @@ export default function Auth() {
           console.error('Login error:', error);
           let errorMessage = 'Login failed. Please try again.';
           
-          if (error.message.includes('Invalid login credentials') || error.message.includes('Invalid credentials')) {
+          // Check error message more carefully
+          const errorMsg = error.message || '';
+          
+          if (errorMsg.includes('Invalid login credentials') || 
+              errorMsg.includes('Invalid credentials') ||
+              errorMsg.includes('Invalid password') ||
+              errorMsg.toLowerCase().includes('invalid')) {
             errorMessage = 'Invalid email or password. Please check your credentials and try again.';
-          } else if (error.message.includes('Email not confirmed') || error.message.includes('email_not_confirmed')) {
+          } else           if (errorMsg.includes('Email not confirmed') || 
+                     errorMsg.includes('email_not_confirmed') ||
+                     errorMsg.includes('confirm your account')) {
             errorMessage = 'Please check your email and confirm your account before logging in.';
-          } else if (error.message.includes('User not found')) {
+            setShowResendEmail(true);
+          } else if (errorMsg.includes('User not found') ||
+                     errorMsg.includes('No user found')) {
             errorMessage = 'No account found with this email. Please sign up first.';
           } else {
-            errorMessage = error.message || 'An error occurred during login.';
+            errorMessage = errorMsg || 'An error occurred during login.';
           }
           
-            toast({
-              title: 'Login Failed',
+          toast({
+            title: 'Login Failed',
             description: errorMessage,
-              variant: 'destructive',
-            });
-        } else if (data?.user) {
+            variant: 'destructive',
+          });
+        } else if (data?.user && data?.session) {
           toast({
             title: 'Welcome back!',
             description: 'You have successfully logged in.',
           });
           navigate(from, { replace: true });
+        } else {
+          toast({
+            title: 'Login Failed',
+            description: 'Login failed. Please try again.',
+            variant: 'destructive',
+          });
         }
       } else {
         const { data, error } = await signUp(email, password);
@@ -120,19 +147,16 @@ export default function Auth() {
             variant: 'destructive',
           });
         } else {
-          // Check if email confirmation is required
-          if (data?.user && !data.session) {
-            toast({
-              title: 'Account created!',
-              description: 'Please check your email to confirm your account before logging in.',
-            });
-          } else {
-            toast({
+          // Always show verification message - don't auto-login
+          toast({
             title: 'Account created!',
-              description: 'Welcome to BankFusion. You are now logged in.',
+            description: 'Verification link sent to your email. Please verify to continue.',
           });
-          navigate(from, { replace: true });
-          }
+          // Reset form and switch to login
+          setEmail('');
+          setPassword('');
+          setConfirmPassword('');
+          setIsLogin(true);
         }
       }
     } finally {
@@ -285,20 +309,66 @@ export default function Auth() {
             </Button>
           </form>
 
-          <div className="mt-6 text-center">
-            <p className="text-muted-foreground">
-              {isLogin ? "Don't have an account?" : 'Already have an account?'}
-              <button
-                type="button"
-                onClick={() => {
-                  setIsLogin(!isLogin);
-                  setErrors({});
-                }}
-                className="ml-2 text-primary hover:underline font-medium"
-              >
-                {isLogin ? 'Sign up' : 'Sign in'}
-              </button>
-            </p>
+          <div className="mt-6 space-y-4">
+            {isLogin && showResendEmail && (
+              <div className="p-3 rounded-lg bg-muted border border-primary/20">
+                <p className="text-sm text-muted-foreground mb-2">
+                  Didn't receive the confirmation email?
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="w-full"
+                  onClick={async () => {
+                    if (!email) {
+                      toast({
+                        title: 'Error',
+                        description: 'Please enter your email address first.',
+                        variant: 'destructive',
+                      });
+                      return;
+                    }
+                    setLoading(true);
+                    const { error } = await resendConfirmationEmail(email);
+                    if (error) {
+                      toast({
+                        title: 'Error',
+                        description: error.message || 'Failed to resend confirmation email.',
+                        variant: 'destructive',
+                      });
+                    } else {
+                      toast({
+                        title: 'Email Sent',
+                        description: 'Confirmation email has been resent. Please check your inbox.',
+                      });
+                      setShowResendEmail(false);
+                    }
+                    setLoading(false);
+                  }}
+                  disabled={loading || !email}
+                >
+                  Resend Confirmation Email
+                </Button>
+              </div>
+            )}
+            
+            <div className="text-center">
+              <p className="text-muted-foreground">
+                {isLogin ? "Don't have an account?" : 'Already have an account?'}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsLogin(!isLogin);
+                    setErrors({});
+                    setShowResendEmail(false);
+                  }}
+                  className="ml-2 text-primary hover:underline font-medium"
+                >
+                  {isLogin ? 'Sign up' : 'Sign in'}
+                </button>
+              </p>
+            </div>
           </div>
         </div>
       </div>

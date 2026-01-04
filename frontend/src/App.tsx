@@ -9,6 +9,7 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import Index from "./pages/Index";
 import Auth from "./pages/Auth";
 import EmailConfirm from "./pages/EmailConfirm";
+import EmailVerify from "./pages/EmailVerify";
 import Dashboard from "./pages/Dashboard.tsx";
 import UploadStatement from "./pages/UploadStatement";
 import Statements from "./pages/Statements";
@@ -41,6 +42,7 @@ const App = () => (
             <Route path="/" element={<Index />} />
             <Route path="/auth" element={<Auth />} />
             <Route path="/auth/confirm" element={<EmailConfirm />} />
+            <Route path="/auth/verify" element={<EmailVerify />} />
             <Route
               path="/dashboard"
               element={

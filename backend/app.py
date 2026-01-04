@@ -38,6 +38,7 @@ from routes.statements import statements_bp
 from routes.transactions import transactions_bp
 from routes.analytics import analytics_bp
 from routes.upload import upload_bp
+from routes.account import account_bp
 from utils.serializers import create_response
 import logging
 
@@ -57,6 +58,7 @@ app.register_blueprint(statements_bp, url_prefix='/api')
 app.register_blueprint(transactions_bp, url_prefix='/api')
 app.register_blueprint(analytics_bp, url_prefix='/api')
 app.register_blueprint(upload_bp, url_prefix='/api')
+app.register_blueprint(account_bp, url_prefix='/api')
 
 @app.route('/')
 def health_check():
