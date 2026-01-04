@@ -27,3 +27,4 @@ pdfplumber==0.11.8
 # OpenAI (optional, for enhanced normalization)
 openai>=1.0.0
 gunicorn
+requests
