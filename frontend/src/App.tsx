@@ -8,6 +8,7 @@ import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import Index from "./pages/Index";
 import Auth from "./pages/Auth";
+import EmailConfirm from "./pages/EmailConfirm";
 import Dashboard from "./pages/Dashboard.tsx";
 import UploadStatement from "./pages/UploadStatement";
 import Statements from "./pages/Statements";
@@ -30,93 +31,94 @@ const queryClient = new QueryClient({
 
 const App = () => (
   <ErrorBoundary>
-    <QueryClientProvider client={queryClient}>
-      <AuthProvider>
-        <TooltipProvider>
-          <Toaster />
-          <Sonner />
-          <BrowserRouter>
-            <Routes>
-              <Route path="/" element={<Index />} />
-              <Route path="/auth" element={<Auth />} />
-              <Route
-                path="/dashboard"
-                element={
-                  <ProtectedRoute>
-                    <Dashboard />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/upload"
-                element={
-                  <ProtectedRoute>
-                    <UploadStatement />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/statements"
-                element={
-                  <ProtectedRoute>
-                    <Statements />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/statements/:id"
-                element={
-                  <ProtectedRoute>
-                    <StatementDetail />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/transactions"
-                element={
-                  <ProtectedRoute>
-                    <Transactions />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/analytics"
-                element={
-                  <ProtectedRoute>
-                    <Analytics />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/export"
-                element={
-                  <ProtectedRoute>
-                    <ExportData />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/settings"
-                element={
-                  <ProtectedRoute>
-                    <Settings />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/json-viewer"
-                element={
-                  <ProtectedRoute>
-                    <JsonViewer />
-                  </ProtectedRoute>
-                }
-              />
-              <Route path="*" element={<NotFound />} />
-            </Routes>
-          </BrowserRouter>
-        </TooltipProvider>
-      </AuthProvider>
-    </QueryClientProvider>
+  <QueryClientProvider client={queryClient}>
+    <AuthProvider>
+      <TooltipProvider>
+        <Toaster />
+        <Sonner />
+        <BrowserRouter>
+          <Routes>
+            <Route path="/" element={<Index />} />
+            <Route path="/auth" element={<Auth />} />
+            <Route path="/auth/confirm" element={<EmailConfirm />} />
+            <Route
+              path="/dashboard"
+              element={
+                <ProtectedRoute>
+                  <Dashboard />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/upload"
+              element={
+                <ProtectedRoute>
+                  <UploadStatement />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/statements"
+              element={
+                <ProtectedRoute>
+                  <Statements />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/statements/:id"
+              element={
+                <ProtectedRoute>
+                  <StatementDetail />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/transactions"
+              element={
+                <ProtectedRoute>
+                  <Transactions />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/analytics"
+              element={
+                <ProtectedRoute>
+                  <Analytics />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/export"
+              element={
+                <ProtectedRoute>
+                  <ExportData />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/settings"
+              element={
+                <ProtectedRoute>
+                  <Settings />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/json-viewer"
+              element={
+                <ProtectedRoute>
+                  <JsonViewer />
+                </ProtectedRoute>
+              }
+            />
+            <Route path="*" element={<NotFound />} />
+          </Routes>
+        </BrowserRouter>
+      </TooltipProvider>
+    </AuthProvider>
+  </QueryClientProvider>
   </ErrorBoundary>
 );
 

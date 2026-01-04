@@ -219,9 +219,9 @@ export default function JsonViewer() {
                   // Keep "Invalid Date" if parsing fails
                 }
                 return (
-                  <SelectItem key={statement.id} value={statement.id}>
+                <SelectItem key={statement.id} value={statement.id}>
                     {statement.bank_name} - {dateDisplay}
-                  </SelectItem>
+                </SelectItem>
                 );
               })}
             </SelectContent>

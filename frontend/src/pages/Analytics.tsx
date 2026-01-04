@@ -29,7 +29,7 @@ export default function Analytics() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetchAnalyticsData();
+      fetchAnalyticsData();
   }, []);
 
   const fetchAnalyticsData = async () => {
@@ -37,7 +37,7 @@ export default function Analytics() {
     try {
       // Fetch category spend data from Flask API
       const categoryResult = await flaskApi.getCategorySpend();
-      
+
       if (categoryResult.success && categoryResult.data) {
         const categories = categoryResult.data.map(c => ({
           name: c.category,
@@ -46,7 +46,7 @@ export default function Analytics() {
         
         setCategoryData(categories);
         setTopCategories(categories.slice(0, 5));
-      }
+        }
 
       // Fetch all statements to get transactions for monthly data
       const statementsResult = await flaskApi.getStatements();
@@ -65,7 +65,7 @@ export default function Analytics() {
           .flatMap(r => r.data || []);
 
         // Convert MongoDB format (amount + direction) to debit/credit
-        const monthlyMap = new Map<string, { credit: number; debit: number }>();
+      const monthlyMap = new Map<string, { credit: number; debit: number }>();
         
         allTransactions.forEach((t: any) => {
           let debit = 0;
@@ -88,16 +88,16 @@ export default function Analytics() {
           
           const month = safeFormatDate(t.date, 'MMM yyyy', 'Unknown');
           if (month !== 'Unknown') {
-            const existing = monthlyMap.get(month) || { credit: 0, debit: 0 };
-            monthlyMap.set(month, {
+        const existing = monthlyMap.get(month) || { credit: 0, debit: 0 };
+        monthlyMap.set(month, {
               credit: existing.credit + credit,
               debit: existing.debit + debit,
-            });
-          }
         });
+          }
+      });
 
-        const sortedMonthly = Array.from(monthlyMap.entries())
-          .map(([month, data]) => ({ month, ...data }))
+      const sortedMonthly = Array.from(monthlyMap.entries())
+        .map(([month, data]) => ({ month, ...data }))
           .sort((a, b) => {
             // Sort by date
             const dateA = new Date(a.month);
@@ -105,7 +105,7 @@ export default function Analytics() {
             return dateA.getTime() - dateB.getTime();
           });
 
-        setMonthlyData(sortedMonthly);
+      setMonthlyData(sortedMonthly);
       }
     } catch (error: any) {
       console.error('Error fetching analytics data:', error);

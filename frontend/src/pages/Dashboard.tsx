@@ -149,7 +149,7 @@ export default function Dashboard() {
           try {
             const month = safeFormatDate(t.date, 'MMM yyyy', 'Unknown');
             if (month !== 'Unknown') {
-              const existing = monthlyMap.get(month) || { credit: 0, debit: 0 };
+            const existing = monthlyMap.get(month) || { credit: 0, debit: 0 };
               
               // Handle MongoDB format (amount + direction) or legacy format (debit/credit)
               let debit = 0;
@@ -170,10 +170,10 @@ export default function Dashboard() {
                 credit = Number(t.credit) || 0;
               }
               
-              monthlyMap.set(month, {
+            monthlyMap.set(month, {
                 credit: existing.credit + credit,
                 debit: existing.debit + debit,
-              });
+            });
             }
           } catch (e) {
             // Skip invalid dates

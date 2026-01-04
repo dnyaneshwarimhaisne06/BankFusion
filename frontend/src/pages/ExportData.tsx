@@ -53,7 +53,7 @@ export default function ExportData() {
   const [exporting, setExporting] = useState<string | null>(null);
 
   useEffect(() => {
-    fetchStatements();
+      fetchStatements();
   }, []);
 
   const fetchStatements = async () => {

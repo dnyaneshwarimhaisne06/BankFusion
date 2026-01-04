@@ -73,22 +73,27 @@ export default function Auth() {
 
     try {
       if (isLogin) {
-        const { error } = await signIn(email, password);
+        const { data, error } = await signIn(email, password);
         if (error) {
-          if (error.message.includes('Invalid login credentials')) {
-            toast({
-              title: 'Login Failed',
-              description: 'Invalid email or password. Please try again.',
-              variant: 'destructive',
-            });
+          console.error('Login error:', error);
+          let errorMessage = 'Login failed. Please try again.';
+          
+          if (error.message.includes('Invalid login credentials') || error.message.includes('Invalid credentials')) {
+            errorMessage = 'Invalid email or password. Please check your credentials and try again.';
+          } else if (error.message.includes('Email not confirmed') || error.message.includes('email_not_confirmed')) {
+            errorMessage = 'Please check your email and confirm your account before logging in.';
+          } else if (error.message.includes('User not found')) {
+            errorMessage = 'No account found with this email. Please sign up first.';
           } else {
-            toast({
-              title: 'Login Failed',
-              description: error.message,
-              variant: 'destructive',
-            });
+            errorMessage = error.message || 'An error occurred during login.';
           }
-        } else {
+          
+          toast({
+            title: 'Login Failed',
+            description: errorMessage,
+            variant: 'destructive',
+          });
+        } else if (data?.user) {
           toast({
             title: 'Welcome back!',
             description: 'You have successfully logged in.',
@@ -96,27 +101,38 @@ export default function Auth() {
           navigate(from, { replace: true });
         }
       } else {
-        const { error } = await signUp(email, password);
+        const { data, error } = await signUp(email, password);
         if (error) {
-          if (error.message.includes('already registered')) {
+          console.error('Sign up error:', error);
+          let errorMessage = 'Sign up failed. Please try again.';
+          
+          if (error.message.includes('already registered') || error.message.includes('User already registered')) {
+            errorMessage = 'This email is already registered. Please log in instead.';
+          } else if (error.message.includes('Password')) {
+            errorMessage = error.message;
+          } else {
+            errorMessage = error.message || 'An error occurred during sign up.';
+          }
+          
+          toast({
+            title: 'Sign Up Failed',
+            description: errorMessage,
+            variant: 'destructive',
+          });
+        } else {
+          // Check if email confirmation is required
+          if (data?.user && !data.session) {
             toast({
-              title: 'Sign Up Failed',
-              description: 'This email is already registered. Please log in instead.',
-              variant: 'destructive',
+              title: 'Account created!',
+              description: 'Please check your email to confirm your account before logging in.',
             });
           } else {
             toast({
-              title: 'Sign Up Failed',
-              description: error.message,
-              variant: 'destructive',
+              title: 'Account created!',
+              description: 'Welcome to BankFusion. You are now logged in.',
             });
+            navigate(from, { replace: true });
           }
-        } else {
-          toast({
-            title: 'Account created!',
-            description: 'Welcome to FinStatement. You are now logged in.',
-          });
-          navigate(from, { replace: true });
         }
       }
     } finally {

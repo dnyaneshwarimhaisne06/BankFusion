@@ -6,8 +6,8 @@ interface AuthContextType {
   user: User | null;
   session: Session | null;
   loading: boolean;
-  signUp: (email: string, password: string) => Promise<{ error: Error | null }>;
-  signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
+  signUp: (email: string, password: string) => Promise<{ data: any; error: Error | null }>;
+  signIn: (email: string, password: string) => Promise<{ data: any; error: Error | null }>;
   signOut: () => Promise<void>;
 }
 
@@ -23,6 +23,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Set up auth state listener FIRST
       const { data: { subscription } } = supabase.auth.onAuthStateChange(
         (event, session) => {
+          console.log('Auth state changed:', event, session?.user?.email);
           setSession(session);
           setUser(session?.user ?? null);
           setLoading(false);
@@ -47,9 +48,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signUp = async (email: string, password: string) => {
-    const redirectUrl = `${window.location.origin}/`;
+    // Get the base URL from environment or use current origin
+    // In production, this should be your deployed domain
+    // In development, this will be localhost
+    const baseUrl = import.meta.env.VITE_APP_URL || window.location.origin;
+    const redirectUrl = `${baseUrl}/auth/confirm`;
     
-    const { error } = await supabase.auth.signUp({
+    const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
@@ -57,16 +62,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     });
     
-    return { error: error as Error | null };
+    // If successful and session exists, update user state
+    if (data?.session) {
+      setSession(data.session);
+      setUser(data.user);
+    }
+    
+    return { data, error: error as Error | null };
   };
 
   const signIn = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({
+    const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
     
-    return { error: error as Error | null };
+    // If successful, update user state
+    if (data?.session) {
+      setSession(data.session);
+      setUser(data.user);
+    }
+    
+    return { data, error: error as Error | null };
   };
 
   const signOut = async () => {

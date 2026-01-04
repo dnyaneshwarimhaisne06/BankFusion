@@ -101,13 +101,13 @@ export default function StatementDetail() {
     try {
       // Fetch statement from Flask API
       const statementResult = await flaskApi.getStatement(id);
-      
+
       if (!statementResult.success || !statementResult.data) {
         console.error('Statement not found:', statementResult.error);
         setLoading(false);
         return;
       }
-
+      
       const apiStatement = statementResult.data;
       
       // Transform API statement to component format
