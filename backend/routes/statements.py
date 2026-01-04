@@ -5,6 +5,7 @@ Bank Statements API Routes
 from flask import Blueprint, request, jsonify
 from db.repositories import StatementRepository
 from utils.serializers import serialize_document, serialize_documents, create_response
+from utils.auth_helpers import get_user_id_from_request
 from config import BANK_TYPES
 import logging
 
@@ -14,8 +15,16 @@ statements_bp = Blueprint('statements', __name__)
 
 @statements_bp.route('/statements', methods=['GET'])
 def get_statements():
-    """Get all bank statements with optional bank type filter"""
+    """Get all bank statements with optional bank type filter, scoped to authenticated user"""
     try:
+        # Extract user_id from JWT token
+        user_id = get_user_id_from_request(request)
+        if not user_id:
+            return jsonify(create_response(
+                success=False,
+                error="Authentication required. Please log in."
+            )), 401
+        
         # Get query parameters
         bank_type = request.args.get('bankType', None)
         
@@ -26,8 +35,8 @@ def get_statements():
                 error=f"Invalid bank type. Supported types: {', '.join(BANK_TYPES)}"
             )), 400
         
-        # Fetch statements
-        statements = StatementRepository.get_all(bank_type)
+        # Fetch statements (scoped to user_id)
+        statements = StatementRepository.get_all(bank_type, user_id=user_id)
         
         # Serialize documents
         serialized = serialize_documents(statements)
@@ -47,10 +56,18 @@ def get_statements():
 
 @statements_bp.route('/statements/<statement_id>', methods=['GET'])
 def get_statement(statement_id: str):
-    """Get a single statement by ID"""
+    """Get a single statement by ID, scoped to authenticated user"""
     try:
-        # Fetch statement
-        statement = StatementRepository.get_by_id(statement_id)
+        # Extract user_id from JWT token
+        user_id = get_user_id_from_request(request)
+        if not user_id:
+            return jsonify(create_response(
+                success=False,
+                error="Authentication required. Please log in."
+            )), 401
+        
+        # Fetch statement (scoped to user_id)
+        statement = StatementRepository.get_by_id(statement_id, user_id=user_id)
         
         if not statement:
             return jsonify(create_response(
@@ -80,10 +97,18 @@ def get_statement(statement_id: str):
 
 @statements_bp.route('/statements/<statement_id>', methods=['DELETE'])
 def delete_statement(statement_id: str):
-    """Delete a statement and all its associated transactions"""
+    """Delete a statement and all its associated transactions, scoped to authenticated user"""
     try:
-        # Check if statement exists
-        statement = StatementRepository.get_by_id(statement_id)
+        # Extract user_id from JWT token
+        user_id = get_user_id_from_request(request)
+        if not user_id:
+            return jsonify(create_response(
+                success=False,
+                error="Authentication required. Please log in."
+            )), 401
+        
+        # Check if statement exists and belongs to user
+        statement = StatementRepository.get_by_id(statement_id, user_id=user_id)
         
         if not statement:
             return jsonify(create_response(
@@ -91,8 +116,8 @@ def delete_statement(statement_id: str):
                 error=f"Statement not found: {statement_id}"
             )), 404
         
-        # Delete statement and associated transactions
-        deleted = StatementRepository.delete(statement_id)
+        # Delete statement and associated transactions (scoped to user_id)
+        deleted = StatementRepository.delete(statement_id, user_id=user_id)
         
         if deleted:
             return jsonify(create_response(

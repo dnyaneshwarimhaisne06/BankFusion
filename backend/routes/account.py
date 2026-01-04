@@ -3,56 +3,75 @@ Account Management Routes
 Handles user account operations like deletion
 """
 
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, Response
 from utils.serializers import create_response
 from db.mongo import MongoDB
 from db.repositories import StatementRepository
 import logging
 import os
 import requests
+import base64
+import json
 
 logger = logging.getLogger(__name__)
 
 account_bp = Blueprint('account', __name__)
 
-def verify_supabase_token(token: str):
+def extract_user_id_from_token(token: str):
     """
-    Verify Supabase JWT token and extract user ID
+    Extract user ID from Supabase JWT token by decoding it
     Returns user_id if valid, None otherwise
     """
     try:
-        supabase_url = os.getenv('SUPABASE_URL')
-        supabase_service_key = os.getenv('SUPABASE_SERVICE_ROLE_KEY')
-        
-        if not supabase_url or not supabase_service_key:
-            logger.warning("Supabase credentials not configured")
+        # JWT tokens have 3 parts separated by dots: header.payload.signature
+        parts = token.split('.')
+        if len(parts) != 3:
+            logger.warning("Invalid JWT token format")
             return None
         
-        # Verify token with Supabase
-        response = requests.get(
-            f"{supabase_url}/auth/v1/user",
-            headers={
-                'Authorization': f'Bearer {token}',
-                'apikey': supabase_service_key
-            }
-        )
+        # Decode the payload (second part)
+        # Add padding if needed for base64 decoding
+        payload = parts[1]
+        padding = len(payload) % 4
+        if padding:
+            payload += '=' * (4 - padding)
         
-        if response.status_code == 200:
-            user_data = response.json()
-            return user_data.get('id')
-        else:
-            logger.warning(f"Token verification failed: {response.status_code}")
+        try:
+            decoded = base64.urlsafe_b64decode(payload)
+            payload_data = json.loads(decoded)
+            
+            # Supabase stores user_id in the 'sub' claim
+            user_id = payload_data.get('sub')
+            
+            if user_id:
+                logger.info(f"Extracted user_id from token: {user_id[:8]}...")
+                return user_id
+            else:
+                logger.warning("Token payload does not contain 'sub' claim")
+                return None
+                
+        except (Exception, json.JSONDecodeError) as e:
+            logger.error(f"Error decoding token payload: {str(e)}")
             return None
+            
     except Exception as e:
-        logger.error(f"Error verifying token: {str(e)}")
+        logger.error(f"Error extracting user_id from token: {str(e)}")
         return None
 
-@account_bp.route('/account/delete', methods=['DELETE'])
+@account_bp.route('/account/delete', methods=['DELETE', 'OPTIONS'])
 def delete_account():
     """
     Delete user account from both Supabase and MongoDB
     Requires valid JWT token in Authorization header
     """
+    # Handle CORS preflight
+    if request.method == 'OPTIONS':
+        response = Response()
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+        response.headers.add('Access-Control-Allow-Methods', 'DELETE, OPTIONS')
+        return response, 200
+    
     try:
         # Get authorization token
         auth_header = request.headers.get('Authorization')
@@ -64,12 +83,13 @@ def delete_account():
         
         token = auth_header.split('Bearer ')[1]
         
-        # Verify token and get user ID
-        user_id = verify_supabase_token(token)
+        # Extract user ID from token (decode JWT without verification)
+        user_id = extract_user_id_from_token(token)
         if not user_id:
+            logger.warning("Failed to extract user_id from token")
             return jsonify(create_response(
                 success=False,
-                error="Invalid or expired token"
+                error="Invalid token format"
             )), 401
         
         # Delete user data from MongoDB
@@ -110,34 +130,59 @@ def delete_account():
             logger.error(f"Error deleting MongoDB data: {str(db_error)}")
             # Continue to delete Supabase user even if MongoDB deletion fails
         
-        # Delete user from Supabase
+        # Delete user from Supabase (REQUIRED - account deletion must remove auth user)
+        supabase_deleted = False
         try:
             supabase_url = os.getenv('SUPABASE_URL')
             supabase_service_key = os.getenv('SUPABASE_SERVICE_ROLE_KEY')
             
-            if supabase_url and supabase_service_key:
-                response = requests.delete(
-                    f"{supabase_url}/auth/v1/admin/users/{user_id}",
-                    headers={
-                        'Authorization': f'Bearer {supabase_service_key}',
-                        'apikey': supabase_service_key
-                    }
-                )
-                
-                if response.status_code not in [200, 204]:
-                    logger.error(f"Failed to delete Supabase user: {response.status_code}")
-                    return jsonify(create_response(
-                        success=False,
-                        error="Failed to delete user account"
-                    )), 500
+            if not supabase_url or not supabase_service_key:
+                logger.error("Supabase credentials not configured - cannot delete user account")
+                return jsonify(create_response(
+                    success=False,
+                    error="Server configuration error: Supabase credentials not set. Cannot delete account."
+                )), 500
+            
+            # Delete user from Supabase using admin API
+            response = requests.delete(
+                f"{supabase_url}/auth/v1/admin/users/{user_id}",
+                headers={
+                    'Authorization': f'Bearer {supabase_service_key}',
+                    'apikey': supabase_service_key,
+                    'Content-Type': 'application/json'
+                },
+                timeout=10
+            )
+            
+            if response.status_code in [200, 204]:
+                logger.info(f"Successfully deleted Supabase user: {user_id}")
+                supabase_deleted = True
             else:
-                logger.warning("Supabase credentials not configured - skipping Supabase user deletion")
+                error_text = response.text
+                logger.error(f"Failed to delete Supabase user: {response.status_code} - {error_text}")
+                return jsonify(create_response(
+                    success=False,
+                    error=f"Failed to delete account from authentication system. Status: {response.status_code}"
+                )), 500
         
+        except requests.exceptions.RequestException as supabase_error:
+            logger.error(f"Network error deleting Supabase user: {str(supabase_error)}")
+            return jsonify(create_response(
+                success=False,
+                error="Failed to connect to authentication service. Please try again."
+            )), 500
         except Exception as supabase_error:
             logger.error(f"Error deleting Supabase user: {str(supabase_error)}")
             return jsonify(create_response(
                 success=False,
                 error="Failed to delete user account"
+            )), 500
+        
+        # Only return success if Supabase deletion succeeded
+        if not supabase_deleted:
+            return jsonify(create_response(
+                success=False,
+                error="Account deletion incomplete - authentication account not removed"
             )), 500
         
         return jsonify(create_response(

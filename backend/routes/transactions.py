@@ -39,19 +39,20 @@ def get_transactions():
                 error=f"Invalid bank type. Supported types: {', '.join(BANK_TYPES)}"
             )), 400
         
-        # Fetch transactions
+        # Fetch transactions (scoped to user_id)
         if statement_id:
-            # Verify statement exists
-            if not StatementRepository.exists(statement_id):
+            # Verify statement exists and belongs to user
+            statement = StatementRepository.get_by_id(statement_id, user_id=user_id)
+            if not statement:
                 return jsonify(create_response(
                     success=False,
                     error=f"Statement not found: {statement_id}"
                 )), 404
             
-            transactions = TransactionRepository.get_by_statement_id(statement_id, limit)
+            transactions = TransactionRepository.get_by_statement_id(statement_id, limit, user_id=user_id)
             message = f"Found {len(transactions)} transaction(s) for statement {statement_id}"
         else:
-            transactions = TransactionRepository.get_by_bank_type(bank_type, limit)
+            transactions = TransactionRepository.get_by_bank_type(bank_type, limit, user_id=user_id)
             message = f"Found {len(transactions)} transaction(s) for bank {bank_type}"
         
         # Serialize documents

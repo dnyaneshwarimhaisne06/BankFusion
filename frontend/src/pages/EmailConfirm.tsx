@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useAuth } from '@/contexts/AuthContext';
 import { Loader2, CheckCircle2, XCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
@@ -8,14 +9,14 @@ import { supabase } from '@/integrations/supabase/client';
  * Email Confirmation Callback Handler
  * 
  * This page handles the redirect from Supabase email confirmation links.
- * It verifies the email but does NOT auto-login the user.
- * User must manually log in after verification.
+ * It processes the confirmation token and redirects the user appropriately.
  */
 export default function EmailConfirm() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
-  const [message, setMessage] = useState('Verifying your email...');
+  const [message, setMessage] = useState('Confirming your email...');
 
   useEffect(() => {
     const handleEmailConfirmation = async () => {
@@ -31,12 +32,11 @@ export default function EmailConfirm() {
         // Check for errors in URL
         if (error) {
           setStatus('error');
-          setMessage(errorDescription || error || 'Email verification failed');
+          setMessage(errorDescription || error || 'Email confirmation failed');
           return;
         }
 
-        // If we have tokens, verify the email by exchanging tokens
-        // But we'll immediately sign out to prevent auto-login
+        // If we have tokens, exchange them for a session
         if (accessToken && refreshToken) {
           const { data, error: sessionError } = await supabase.auth.setSession({
             access_token: accessToken,
@@ -45,61 +45,44 @@ export default function EmailConfirm() {
 
           if (sessionError) {
             setStatus('error');
-            setMessage(sessionError.message || 'Failed to verify email');
+            setMessage(sessionError.message || 'Failed to create session');
             return;
           }
 
-          if (data.session && data.user) {
-            // Verify that email is actually confirmed
-            if (data.user.email_confirmed_at) {
-              // Email is confirmed, now sign out so user must manually log in
-              await supabase.auth.signOut();
-              
-              setStatus('success');
-              setMessage('Email verified successfully. Please log in.');
-              
-              // Redirect to login page after showing success message
-              setTimeout(() => {
-                navigate('/auth', { replace: true, state: { emailVerified: true } });
-              }, 2000);
-              return;
-            } else {
-              // Email not confirmed yet, wait a bit and check again
-              await new Promise(resolve => setTimeout(resolve, 1000));
-              const { data: { user: updatedUser } } = await supabase.auth.getUser();
-              
-              if (updatedUser?.email_confirmed_at) {
-                await supabase.auth.signOut();
-                setStatus('success');
-                setMessage('Email verified successfully. Please log in.');
-                setTimeout(() => {
-                  navigate('/auth', { replace: true, state: { emailVerified: true } });
-                }, 2000);
-                return;
-              } else {
-                setStatus('error');
-                setMessage('Email verification is processing. Please wait a moment and try logging in.');
-                setTimeout(() => {
-                  navigate('/auth', { replace: true });
-                }, 3000);
-                return;
-              }
-            }
+          if (data.session) {
+            setStatus('success');
+            setMessage('Email confirmed successfully! Redirecting to dashboard...');
+            
+            // Wait a moment to show success message, then redirect
+            setTimeout(() => {
+              navigate('/dashboard', { replace: true });
+            }, 2000);
+            return;
           }
         }
 
-        // If no tokens, show error
+        // Fallback: Check if user is already confirmed
+        if (user?.email_confirmed_at) {
+          setStatus('success');
+          setMessage('Your email is already confirmed. Redirecting...');
+          setTimeout(() => {
+            navigate('/dashboard', { replace: true });
+          }, 1500);
+          return;
+        }
+
+        // If no tokens and user not confirmed, show error
         setStatus('error');
-        setMessage('Invalid verification link. Please request a new confirmation email.');
+        setMessage('Invalid confirmation link. Please request a new confirmation email.');
       } catch (err: any) {
-        console.error('Email verification error:', err);
+        console.error('Email confirmation error:', err);
         setStatus('error');
         setMessage(err.message || 'An unexpected error occurred');
       }
     };
 
     handleEmailConfirmation();
-  }, [navigate]);
+  }, [navigate, user]);
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
@@ -107,7 +90,7 @@ export default function EmailConfirm() {
         {status === 'loading' && (
           <>
             <Loader2 className="w-16 h-16 animate-spin text-primary mx-auto" />
-            <h1 className="text-2xl font-bold">Verifying Email</h1>
+            <h1 className="text-2xl font-bold">Confirming Email</h1>
             <p className="text-muted-foreground">{message}</p>
           </>
         )}
@@ -115,10 +98,10 @@ export default function EmailConfirm() {
         {status === 'success' && (
           <>
             <CheckCircle2 className="w-16 h-16 text-green-500 mx-auto" />
-            <h1 className="text-2xl font-bold text-green-600">Email Verified!</h1>
+            <h1 className="text-2xl font-bold text-green-600">Email Confirmed!</h1>
             <p className="text-muted-foreground">{message}</p>
-            <Button onClick={() => navigate('/auth', { replace: true })} className="mt-4">
-              Go to Login
+            <Button onClick={() => navigate('/dashboard')} className="mt-4">
+              Go to Dashboard
             </Button>
           </>
         )}
@@ -126,7 +109,7 @@ export default function EmailConfirm() {
         {status === 'error' && (
           <>
             <XCircle className="w-16 h-16 text-destructive mx-auto" />
-            <h1 className="text-2xl font-bold text-destructive">Verification Failed</h1>
+            <h1 className="text-2xl font-bold text-destructive">Confirmation Failed</h1>
             <p className="text-muted-foreground">{message}</p>
             <div className="flex gap-4 justify-center mt-6">
               <Button variant="outline" onClick={() => navigate('/auth')}>

@@ -8,8 +8,7 @@ import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import Index from "./pages/Index";
 import Auth from "./pages/Auth";
-import EmailConfirm from "./pages/EmailConfirm";
-import EmailVerify from "./pages/EmailVerify";
+import EmailVerified from "./pages/EmailVerified";
 import Dashboard from "./pages/Dashboard.tsx";
 import UploadStatement from "./pages/UploadStatement";
 import Statements from "./pages/Statements";
@@ -41,8 +40,8 @@ const App = () => (
           <Routes>
             <Route path="/" element={<Index />} />
             <Route path="/auth" element={<Auth />} />
-            <Route path="/auth/confirm" element={<EmailConfirm />} />
-            <Route path="/auth/verify" element={<EmailVerify />} />
+            <Route path="/auth/verified" element={<EmailVerified />} />
+            <Route path="/auth/verify" element={<EmailVerified />} />
             <Route
               path="/dashboard"
               element={

@@ -5,6 +5,28 @@ import type { Database } from './types';
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://placeholder.supabase.co';
 const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || 'placeholder-key';
 
+// Validate configuration
+if (!import.meta.env.VITE_SUPABASE_URL || SUPABASE_URL === 'https://placeholder.supabase.co') {
+  console.error('❌ VITE_SUPABASE_URL is missing! Check your .env file');
+}
+
+if (!import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || SUPABASE_PUBLISHABLE_KEY === 'placeholder-key') {
+  console.error('❌ VITE_SUPABASE_PUBLISHABLE_KEY is missing! Check your .env file');
+  console.error('Get your key from: Supabase Dashboard → Settings → API → Publishable key');
+  console.error('The key should start with "sb_publishable_" (new format) or "eyJ" (legacy format)');
+}
+
+// Validate key format (accept both new and legacy formats)
+const isValidKeyFormat = SUPABASE_PUBLISHABLE_KEY.startsWith('sb_publishable_') || 
+                         SUPABASE_PUBLISHABLE_KEY.startsWith('eyJ') ||
+                         SUPABASE_PUBLISHABLE_KEY === 'placeholder-key';
+
+if (!isValidKeyFormat && SUPABASE_PUBLISHABLE_KEY !== 'placeholder-key') {
+  console.warn('⚠️ Supabase key format looks unusual.');
+  console.warn('Expected format: "sb_publishable_..." (new) or "eyJ..." (legacy)');
+  console.warn('Current key starts with:', SUPABASE_PUBLISHABLE_KEY.substring(0, 20) + '...');
+}
+
 // Import the supabase client like this:
 // import { supabase } from "@/integrations/supabase/client";
 
@@ -13,5 +35,6 @@ export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABL
     storage: localStorage,
     persistSession: true,
     autoRefreshToken: true,
+    detectSessionInUrl: true,
   }
 });

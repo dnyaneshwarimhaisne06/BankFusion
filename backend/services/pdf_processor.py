@@ -101,7 +101,7 @@ class PDFProcessor:
         return file_path
     
     @staticmethod
-    def process_pdf_to_mongodb(pdf_path: str) -> Dict[str, Any]:
+    def process_pdf_to_mongodb(pdf_path: str, user_id: str = None) -> Dict[str, Any]:
         """
         Process PDF: Extract → Normalize → Store in MongoDB
         Returns statement ID and processing results
@@ -164,6 +164,11 @@ class PDFProcessor:
             statement_doc['fileName'] = os.path.basename(pdf_path)
             statement_doc['uploadDate'] = datetime.now().isoformat()
             
+            # Add user_id for data isolation
+            if user_id:
+                statement_doc['userId'] = user_id
+                logger.info(f"Associating statement with user: {user_id[:8]}...")
+            
             # Step 6: Insert statement (parent)
             result = statements_col.insert_one(statement_doc)
             statement_id = result.inserted_id
@@ -185,6 +190,9 @@ class PDFProcessor:
                     original,
                     normalized
                 )
+                # Add user_id for data isolation
+                if user_id:
+                    txn_doc['userId'] = user_id
                 transaction_docs.append(txn_doc)
                 
                 # Batch insert every 50 transactions

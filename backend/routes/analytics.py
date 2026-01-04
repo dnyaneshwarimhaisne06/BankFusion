@@ -5,6 +5,7 @@ Analytics API Routes
 from flask import Blueprint, request, jsonify
 from services.analytics import AnalyticsService
 from utils.serializers import create_response
+from utils.auth_helpers import get_user_id_from_request
 from config import BANK_TYPES
 import logging
 
@@ -14,8 +15,16 @@ analytics_bp = Blueprint('analytics', __name__)
 
 @analytics_bp.route('/analytics/category-spend', methods=['GET'])
 def get_category_spend():
-    """Get category-wise spend analysis"""
+    """Get category-wise spend analysis, scoped to authenticated user"""
     try:
+        # Extract user_id from JWT token
+        user_id = get_user_id_from_request(request)
+        if not user_id:
+            return jsonify(create_response(
+                success=False,
+                error="Authentication required. Please log in."
+            )), 401
+        
         # Get query parameters
         bank_type = request.args.get('bankType', None)
         
@@ -26,8 +35,8 @@ def get_category_spend():
                 error=f"Invalid bank type. Supported types: {', '.join(BANK_TYPES)}"
             )), 400
         
-        # Get analytics data
-        results = AnalyticsService.get_category_spend(bank_type)
+        # Get analytics data (scoped to user_id)
+        results = AnalyticsService.get_category_spend(bank_type, user_id=user_id)
         
         # Prepare response message
         if bank_type:
@@ -55,10 +64,18 @@ def get_category_spend():
 
 @analytics_bp.route('/analytics/bank-wise-spend', methods=['GET'])
 def get_bank_wise_spend():
-    """Get bank-wise expense summary"""
+    """Get bank-wise expense summary, scoped to authenticated user"""
     try:
-        # Get analytics data
-        results = AnalyticsService.get_bank_wise_spend()
+        # Extract user_id from JWT token
+        user_id = get_user_id_from_request(request)
+        if not user_id:
+            return jsonify(create_response(
+                success=False,
+                error="Authentication required. Please log in."
+            )), 401
+        
+        # Get analytics data (scoped to user_id)
+        results = AnalyticsService.get_bank_wise_spend(user_id=user_id)
         
         return jsonify(create_response(
             success=True,
@@ -75,8 +92,16 @@ def get_bank_wise_spend():
 
 @analytics_bp.route('/analytics/summary', methods=['GET'])
 def get_summary():
-    """Get total debit vs credit summary"""
+    """Get total debit vs credit summary, scoped to authenticated user"""
     try:
+        # Extract user_id from JWT token
+        user_id = get_user_id_from_request(request)
+        if not user_id:
+            return jsonify(create_response(
+                success=False,
+                error="Authentication required. Please log in."
+            )), 401
+        
         # Get query parameters
         bank_type = request.args.get('bankType', None)
         
@@ -87,8 +112,8 @@ def get_summary():
                 error=f"Invalid bank type. Supported types: {', '.join(BANK_TYPES)}"
             )), 400
         
-        # Get analytics data
-        results = AnalyticsService.get_total_summary(bank_type)
+        # Get analytics data (scoped to user_id)
+        results = AnalyticsService.get_total_summary(bank_type, user_id=user_id)
         
         # Prepare response message
         if bank_type:
@@ -116,21 +141,29 @@ def get_summary():
 
 @analytics_bp.route('/analytics/ai-summary/<statement_id>', methods=['GET'])
 def get_ai_summary(statement_id: str):
-    """Generate AI-powered expense summary report for a statement"""
+    """Generate AI-powered expense summary report for a statement, scoped to authenticated user"""
     try:
+        # Extract user_id from JWT token
+        user_id = get_user_id_from_request(request)
+        if not user_id:
+            return jsonify(create_response(
+                success=False,
+                error="Authentication required. Please log in."
+            )), 401
+        
         from db.repositories import StatementRepository, TransactionRepository
         from services.ai_summary import generate_expense_summary
         
-        # Fetch statement
-        statement = StatementRepository.get_by_id(statement_id)
+        # Fetch statement (scoped to user_id)
+        statement = StatementRepository.get_by_id(statement_id, user_id=user_id)
         if not statement:
             return jsonify(create_response(
                 success=False,
                 error=f"Statement not found: {statement_id}"
             )), 404
         
-        # Fetch transactions
-        transactions = TransactionRepository.get_by_statement_id(statement_id, limit=1000)
+        # Fetch transactions (scoped to user_id)
+        transactions = TransactionRepository.get_by_statement_id(statement_id, limit=1000, user_id=user_id)
         
         # Prepare statement data
         statement_data = {

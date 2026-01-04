@@ -13,9 +13,9 @@ class AnalyticsService:
     """Service for analytics operations"""
     
     @staticmethod
-    def get_category_spend(bank_type: Optional[str] = None) -> List[Dict]:
+    def get_category_spend(bank_type: Optional[str] = None, user_id: Optional[str] = None) -> List[Dict]:
         """
-        Get category-wise spend analysis
+        Get category-wise spend analysis, optionally scoped to user_id
         
         Rules:
         - Only debit transactions count as expenses
@@ -27,8 +27,8 @@ class AnalyticsService:
             if bank_type and bank_type.upper() not in BANK_TYPES:
                 raise ValueError(f"Invalid bank type. Supported types: {', '.join(BANK_TYPES)}")
             
-            # Get category spend from repository
-            results = TransactionRepository.get_category_spend(bank_type)
+            # Get category spend from repository (scoped to user_id)
+            results = TransactionRepository.get_category_spend(bank_type, user_id=user_id)
             
             # Format results
             formatted_results = []
@@ -48,9 +48,9 @@ class AnalyticsService:
             raise Exception("Failed to fetch category spend analytics")
     
     @staticmethod
-    def get_bank_wise_spend() -> List[Dict]:
+    def get_bank_wise_spend(user_id: Optional[str] = None) -> List[Dict]:
         """
-        Get bank-wise expense summary
+        Get bank-wise expense summary, optionally scoped to user_id
         
         Returns total debit (expenses) and credit (income) per bank
         """
@@ -61,45 +61,54 @@ class AnalyticsService:
             db = MongoDB.get_db()
             collection = db[TRANSACTIONS_COLLECTION]
             
-            pipeline = [
-                {
-                    '$group': {
-                        '_id': '$bankType',
-                        'totalDebit': {
-                            '$sum': {
-                                '$cond': [{'$eq': ['$direction', 'debit']}, '$amount', 0]
-                            }
-                        },
-                        'totalCredit': {
-                            '$sum': {
-                                '$cond': [{'$eq': ['$direction', 'credit']}, '$amount', 0]
-                            }
-                        },
-                        'debitCount': {
-                            '$sum': {
-                                '$cond': [{'$eq': ['$direction', 'debit']}, 1, 0]
-                            }
-                        },
-                        'creditCount': {
-                            '$sum': {
-                                '$cond': [{'$eq': ['$direction', 'credit']}, 1, 0]
-                            }
+            # Match stage with user_id filter if provided
+            match_stage = {}
+            if user_id:
+                match_stage['userId'] = user_id
+            
+            pipeline = []
+            if match_stage:
+                pipeline.append({'$match': match_stage})
+            
+            pipeline.append({
+                '$group': {
+                    '_id': '$bankType',
+                    'totalDebit': {
+                        '$sum': {
+                            '$cond': [{'$eq': ['$direction', 'debit']}, '$amount', 0]
+                        }
+                    },
+                    'totalCredit': {
+                        '$sum': {
+                            '$cond': [{'$eq': ['$direction', 'credit']}, '$amount', 0]
+                        }
+                    },
+                    'debitCount': {
+                        '$sum': {
+                            '$cond': [{'$eq': ['$direction', 'debit']}, 1, 0]
+                        }
+                    },
+                    'creditCount': {
+                        '$sum': {
+                            '$cond': [{'$eq': ['$direction', 'credit']}, 1, 0]
                         }
                     }
-                },
-                {
-                    '$project': {
-                        '_id': 0,
-                        'bankType': '$_id',
-                        'totalDebit': {'$round': ['$totalDebit', 2]},
-                        'totalCredit': {'$round': ['$totalCredit', 2]},
-                        'debitCount': 1,
-                        'creditCount': 1,
-                        'netAmount': {'$round': [{'$subtract': ['$totalCredit', '$totalDebit']}, 2]}
-                    }
-                },
-                {'$sort': {'totalDebit': -1}}
-            ]
+                }
+            })
+            
+            pipeline.append({
+                '$project': {
+                    '_id': 0,
+                    'bankType': '$_id',
+                    'totalDebit': {'$round': ['$totalDebit', 2]},
+                    'totalCredit': {'$round': ['$totalCredit', 2]},
+                    'debitCount': 1,
+                    'creditCount': 1,
+                    'netAmount': {'$round': [{'$subtract': ['$totalCredit', '$totalDebit']}, 2]}
+                }
+            })
+            
+            pipeline.append({'$sort': {'totalDebit': -1}})
             
             results = list(collection.aggregate(pipeline))
             return results
@@ -109,9 +118,9 @@ class AnalyticsService:
             raise Exception("Failed to fetch bank-wise spend analytics")
     
     @staticmethod
-    def get_total_summary(bank_type: Optional[str] = None) -> Dict:
+    def get_total_summary(bank_type: Optional[str] = None, user_id: Optional[str] = None) -> Dict:
         """
-        Get total debit vs credit summary
+        Get total debit vs credit summary, optionally scoped to user_id
         
         Returns overall financial summary
         """
@@ -125,6 +134,8 @@ class AnalyticsService:
             match_stage = {}
             if bank_type:
                 match_stage['bankType'] = bank_type.upper()
+            if user_id:
+                match_stage['userId'] = user_id
             
             pipeline = [
                 {'$match': match_stage} if match_stage else {'$match': {}},

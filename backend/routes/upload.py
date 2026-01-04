@@ -9,6 +9,7 @@ import tempfile
 from pathlib import Path
 from services.pdf_processor import PDFProcessor
 from utils.serializers import create_response
+from utils.auth_helpers import get_user_id_from_request
 import logging
 
 logger = logging.getLogger(__name__)
@@ -27,6 +28,14 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 def upload_pdf():
     """Upload and process PDF bank statement"""
     try:
+        # Extract user_id from JWT token
+        user_id = get_user_id_from_request(request)
+        if not user_id:
+            return jsonify(create_response(
+                success=False,
+                error="Authentication required. Please log in."
+            )), 401
+        
         # Check if file is present
         if 'pdf' not in request.files and 'file' not in request.files:
             return jsonify(create_response(
@@ -60,8 +69,8 @@ def upload_pdf():
         pdf_path = PDFProcessor.save_uploaded_file(file, UPLOAD_FOLDER)
         
         try:
-            # Process PDF: Extract → Normalize → Store in MongoDB
-            result = PDFProcessor.process_pdf_to_mongodb(pdf_path)
+            # Process PDF: Extract → Normalize → Store in MongoDB (with user_id)
+            result = PDFProcessor.process_pdf_to_mongodb(pdf_path, user_id=user_id)
             
             # Clean up uploaded file after processing
             try:

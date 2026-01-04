@@ -6,6 +6,8 @@
  * VITE_FLASK_API_URL=http://localhost:5000/api
  */
 
+import { supabase } from '@/integrations/supabase/client';
+
 // Default to localhost:5000 if not configured
 const API_BASE_URL = import.meta.env.VITE_FLASK_API_URL || 'http://localhost:5000/api';
 
@@ -94,15 +96,27 @@ class FlaskApiClient {
     options: RequestInit = {}
   ): Promise<ApiResponse<T>> {
     try {
+      // Get Supabase session token for authentication
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      
+      // Build headers with authentication
+      const headers: HeadersInit = {
+        'Content-Type': 'application/json',
+        ...options.headers,
+      };
+      
+      // Add Authorization header if token exists
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+      
       const url = `${this.baseUrl}${endpoint}`;
       console.log(`[Flask API] ${options.method || 'GET'} ${url}`);
 
       const response = await fetch(url, {
         ...options,
-        headers: {
-          'Content-Type': 'application/json',
-          ...options.headers,
-        },
+        headers,
       });
 
       const data = await response.json();
@@ -141,6 +155,17 @@ class FlaskApiClient {
   
   async uploadPdf(file: File): Promise<ApiResponse<UploadResult>> {
     try {
+      // Get Supabase session token for authentication
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      
+      if (!token) {
+        return {
+          success: false,
+          error: 'Authentication required. Please log in.',
+        };
+      }
+      
       const formData = new FormData();
       formData.append('pdf', file);
 
@@ -149,8 +174,11 @@ class FlaskApiClient {
 
       const response = await fetch(url, {
         method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          // Don't set Content-Type for FormData - browser handles it
+        },
         body: formData,
-        // Don't set Content-Type for FormData - browser handles it
       });
 
       const data = await response.json();

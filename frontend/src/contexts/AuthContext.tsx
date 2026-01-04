@@ -9,9 +9,8 @@ interface AuthContextType {
   signUp: (email: string, password: string) => Promise<{ data: any; error: Error | null }>;
   signIn: (email: string, password: string) => Promise<{ data: any; error: Error | null }>;
   signOut: () => Promise<void>;
-  changePassword: (newPassword: string) => Promise<{ error: Error | null }>;
+  updatePassword: (newPassword: string) => Promise<{ error: Error | null }>;
   deleteAccount: () => Promise<{ error: Error | null }>;
-  resendConfirmationEmail: (email: string) => Promise<{ error: Error | null }>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -51,141 +50,199 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signUp = async (email: string, password: string) => {
-    // Get the base URL from environment or use current origin
-    // In production, this should be your deployed domain
-    // In development, this will be localhost
-    const baseUrl = import.meta.env.VITE_APP_URL || window.location.origin;
-    // Use /auth/confirm as it's likely configured in Supabase dashboard
-    // Both /auth/confirm and /auth/verify now work the same way
-    const redirectUrl = `${baseUrl}/auth/confirm`;
-    
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        emailRedirectTo: redirectUrl
-      }
-    });
-    
-    // Don't auto-login after signup - user must verify email first
-    // Session will be null until email is confirmed
-    
-    return { data, error: error as Error | null };
-  };
-
-  const signIn = async (email: string, password: string) => {
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
+      // Trim email to avoid whitespace issues
+      const trimmedEmail = email.trim();
       
-      // If there's an error, return it
-      if (error) {
-        return { data: null, error: error as Error };
+      if (!trimmedEmail || !password) {
+        return { 
+          data: null, 
+          error: new Error('Email and password are required') 
+        };
       }
-      
-      // If successful, verify email is confirmed
-      if (data?.session && data?.user) {
-        // Check if email is confirmed
-        if (!data.user.email_confirmed_at) {
-          // Sign out if email not confirmed
-          await supabase.auth.signOut();
-          setSession(null);
-          setUser(null);
-          return { 
-            data: null, 
-            error: new Error('Please check your email and confirm your account before logging in.') 
-          };
-        }
-        
-        // Email is confirmed, update state
-        setSession(data.session);
-        setUser(data.user);
-      }
-      
-      return { data, error: null };
-    } catch (err: any) {
-      return { data: null, error: err as Error };
-    }
-  };
 
-  const signOut = async () => {
-    await supabase.auth.signOut();
-    setSession(null);
-    setUser(null);
-  };
-
-  const changePassword = async (newPassword: string) => {
-    const { error } = await supabase.auth.updateUser({
-      password: newPassword
-    });
-    return { error: error as Error | null };
-  };
-
-  const resendConfirmationEmail = async (email: string) => {
-    try {
+      // Get the base URL from environment or use current origin
+      // For production, use the deployed URL; for development, use current origin
+      // IMPORTANT: For mobile/other devices, this must be a publicly accessible URL
       const baseUrl = import.meta.env.VITE_APP_URL || window.location.origin;
-      // Use /auth/confirm to match signup redirect
-      const redirectUrl = `${baseUrl}/auth/confirm`;
+      // Use /auth/verified (also support /auth/verify for compatibility)
+      const redirectUrl = `${baseUrl}/auth/verified`;
       
-      // Use the resend method - this works even if user is not logged in
-      const { error } = await supabase.auth.resend({
-        type: 'signup',
-        email: email,
+      const { data, error } = await supabase.auth.signUp({
+        email: trimmedEmail,
+        password,
         options: {
           emailRedirectTo: redirectUrl
         }
       });
       
-      if (error) {
-        return { error: error as Error };
+      // If successful and session exists, update user state
+      if (data?.session) {
+        setSession(data.session);
+        setUser(data.user);
       }
       
+      // Convert Supabase error to Error object if present
+      if (error) {
+        console.error('Sign up error:', error);
+        return { 
+          data: null, 
+          error: new Error(error.message || 'Sign up failed') 
+        };
+      }
+      
+      return { data, error: null };
+    } catch (err: any) {
+      console.error('Sign up exception:', err);
+      return { 
+        data: null, 
+        error: new Error(err.message || 'An unexpected error occurred during sign up') 
+      };
+    }
+  };
+
+  const signIn = async (email: string, password: string) => {
+    try {
+      // Trim email to avoid whitespace issues
+      const trimmedEmail = email.trim();
+      
+      if (!trimmedEmail || !password) {
+        return { 
+          data: null, 
+          error: new Error('Email and password are required') 
+        };
+      }
+
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: trimmedEmail,
+        password,
+      });
+      
+      // Check if email is confirmed
+      if (data?.user && !data.user.email_confirmed_at) {
+        // Sign out immediately if email not confirmed
+        await supabase.auth.signOut();
+        return { 
+          data: null, 
+          error: new Error('Please verify your email before logging in. Check your inbox for the confirmation link.') 
+        };
+      }
+      
+      // If successful, update user state immediately
+      if (data?.session) {
+        setSession(data.session);
+        setUser(data.user);
+      }
+      
+      // Convert Supabase error to Error object if present
+      if (error) {
+        console.error('Sign in error:', error);
+        return { 
+          data: null, 
+          error: new Error(error.message || 'Login failed') 
+        };
+      }
+      
+      return { data, error: null };
+    } catch (err: any) {
+      console.error('Sign in exception:', err);
+      return { 
+        data: null, 
+        error: new Error(err.message || 'An unexpected error occurred during login') 
+      };
+    }
+  };
+
+  const signOut = async () => {
+    try {
+      await supabase.auth.signOut();
+      setSession(null);
+      setUser(null);
+      // Clear all cached data on logout
+      localStorage.clear();
+      sessionStorage.clear();
+    } catch (error) {
+      console.error('Sign out error:', error);
+      // Still clear local state even if signout fails
+      setSession(null);
+      setUser(null);
+      localStorage.clear();
+      sessionStorage.clear();
+    }
+  };
+
+  const updatePassword = async (newPassword: string) => {
+    try {
+      if (!newPassword || newPassword.length < 8) {
+        return { error: new Error('Password must be at least 8 characters') };
+      }
+
+      const { error } = await supabase.auth.updateUser({
+        password: newPassword
+      });
+
+      if (error) {
+        console.error('Update password error:', error);
+        return { error: new Error(error.message || 'Failed to update password') };
+      }
+
       return { error: null };
     } catch (err: any) {
-      return { error: err as Error };
+      console.error('Update password exception:', err);
+      return { error: new Error(err.message || 'An unexpected error occurred') };
     }
   };
 
   const deleteAccount = async () => {
-    if (!user?.id) {
-      return { error: new Error('No user found') };
-    }
-
     try {
-      // Get the current session token
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        return { error: new Error('No active session') };
+      
+      if (!session?.access_token) {
+        return { error: new Error('No active session. Please log in again.') };
       }
 
-      // Call backend endpoint to delete account
-      // Backend will handle Supabase user deletion and MongoDB data cleanup
-      const backendUrl = import.meta.env.VITE_FLASK_API_URL || 'http://localhost:5000';
+      // Call backend to delete user data from MongoDB and Supabase
+      const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
       const response = await fetch(`${backendUrl}/api/account/delete`, {
         method: 'DELETE',
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.access_token}`
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json'
         }
       });
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        return { error: new Error(errorData.error || 'Failed to delete account') };
+        const errorMessage = errorData.error || `Failed to delete account (${response.status})`;
+        console.error('Delete account failed:', errorMessage);
+        return { error: new Error(errorMessage) };
       }
 
-      // Sign out after successful deletion
-      await signOut();
+      // Clear local session immediately
+      setSession(null);
+      setUser(null);
+      
+      // Sign out from Supabase (account should already be deleted, but clear local storage)
+      try {
+        await supabase.auth.signOut();
+      } catch (signOutError) {
+        // Ignore sign out errors - account is already deleted
+        console.log('Sign out after deletion (expected):', signOutError);
+      }
+      
+      // Clear all local storage
+      localStorage.clear();
+      sessionStorage.clear();
+      
       return { error: null };
     } catch (err: any) {
-      return { error: err as Error };
+      console.error('Delete account error:', err);
+      return { error: new Error(err.message || 'Failed to delete account') };
     }
   };
 
   return (
-    <AuthContext.Provider value={{ user, session, loading, signUp, signIn, signOut, changePassword, deleteAccount, resendConfirmationEmail }}>
+    <AuthContext.Provider value={{ user, session, loading, signUp, signIn, signOut, updatePassword, deleteAccount }}>
       {children}
     </AuthContext.Provider>
   );
