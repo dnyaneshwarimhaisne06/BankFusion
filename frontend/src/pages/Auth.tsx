@@ -88,11 +88,11 @@ export default function Auth() {
             errorMessage = error.message || 'An error occurred during login.';
           }
           
-          toast({
-            title: 'Login Failed',
+            toast({
+              title: 'Login Failed',
             description: errorMessage,
-            variant: 'destructive',
-          });
+              variant: 'destructive',
+            });
         } else if (data?.user) {
           toast({
             title: 'Welcome back!',
@@ -128,10 +128,10 @@ export default function Auth() {
             });
           } else {
             toast({
-              title: 'Account created!',
+            title: 'Account created!',
               description: 'Welcome to BankFusion. You are now logged in.',
-            });
-            navigate(from, { replace: true });
+          });
+          navigate(from, { replace: true });
           }
         }
       }
