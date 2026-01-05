@@ -3,7 +3,6 @@ BankFusion Flask REST API
 Main Application Entry Point
 """
 
-import sys
 import os
 import logging
 from flask import Flask, jsonify, request, Response
@@ -35,7 +34,7 @@ app = Flask(__name__)
 FRONTEND_ORIGIN = "https://bankfusion-frontend-91cx.onrender.com"
 
 # --------------------------------------------------
-# CORS (GLOBAL, SAFE, PRODUCTION)
+# GLOBAL CORS CONFIG (SAFE, PRODUCTION)
 # --------------------------------------------------
 CORS(
     app,
@@ -47,21 +46,21 @@ CORS(
 )
 
 # --------------------------------------------------
-# Explicit OPTIONS Preflight Handler (CRITICAL)
+# 🔥 EXPLICIT OPTIONS ROUTE (THE MISSING PIECE)
+# This MUST be above blueprint registration
 # --------------------------------------------------
-@app.before_request
-def handle_preflight():
-    if request.method == "OPTIONS":
-        response = Response(status=200)
-        response.headers["Access-Control-Allow-Origin"] = FRONTEND_ORIGIN
-        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
-        response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With"
-        response.headers["Access-Control-Allow-Credentials"] = "true"
-        response.headers["Access-Control-Max-Age"] = "3600"
-        return response
+@app.route("/api/<path:any_path>", methods=["OPTIONS"])
+def api_preflight(any_path):
+    response = Response(status=200)
+    response.headers["Access-Control-Allow-Origin"] = FRONTEND_ORIGIN
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With"
+    response.headers["Access-Control-Allow-Credentials"] = "true"
+    response.headers["Access-Control-Max-Age"] = "3600"
+    return response
 
 # --------------------------------------------------
-# DB Init (runs AFTER preflight)
+# DB INIT (RUNS AFTER PREFLIGHT)
 # --------------------------------------------------
 @app.before_request
 def initialize_db():
@@ -71,7 +70,7 @@ def initialize_db():
         logger.warning(f"MongoDB init warning: {e}")
 
 # --------------------------------------------------
-# Blueprints
+# BLUEPRINTS
 # --------------------------------------------------
 app.register_blueprint(statements_bp, url_prefix="/api")
 app.register_blueprint(transactions_bp, url_prefix="/api")
@@ -80,7 +79,7 @@ app.register_blueprint(upload_bp, url_prefix="/api")
 app.register_blueprint(account_bp, url_prefix="/api")
 
 # --------------------------------------------------
-# Routes
+# ROUTES
 # --------------------------------------------------
 @app.route("/")
 def root():
@@ -114,7 +113,7 @@ def health():
         )), 503
 
 # --------------------------------------------------
-# Errors
+# ERROR HANDLERS
 # --------------------------------------------------
 @app.errorhandler(404)
 def not_found(_):
@@ -126,7 +125,7 @@ def internal_error(e):
     return jsonify(create_response(success=False, error="Internal Server Error")), 500
 
 # --------------------------------------------------
-# Startup
+# STARTUP
 # --------------------------------------------------
 if __name__ == "__main__":
     try:
