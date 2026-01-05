@@ -51,12 +51,15 @@ logger = logging.getLogger(__name__)
 
 # Create Flask app
 app = Flask(__name__)
-# Enable CORS with proper configuration for all routes
+
+# Production-safe CORS configuration
+# Only allow requests from the Render frontend deployment
 CORS(app, resources={
     r"/api/*": {
-        "origins": "*",
+        "origins": ["https://bankfusion-frontend-91cx.onrender.com"],
         "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-        "allow_headers": ["Content-Type", "Authorization"]
+        "allow_headers": ["Content-Type", "Authorization"],
+        "supports_credentials": True
     }
 })
 
