@@ -70,11 +70,23 @@ export default function Auth() {
 
     setLoading(true);
     try {
+      // Use ONLY production URL - no fallback to localhost
+      const baseUrl = import.meta.env.VITE_APP_URL;
+      if (!baseUrl) {
+        toast({
+          title: 'Configuration Error',
+          description: 'VITE_APP_URL is not configured. Cannot send confirmation email.',
+          variant: 'destructive',
+        });
+        setLoading(false);
+        return;
+      }
+
       const { error } = await supabase.auth.resend({
         type: 'signup',
         email: email.trim(),
         options: {
-          emailRedirectTo: `${import.meta.env.VITE_APP_URL || window.location.origin}/auth/verified`
+          emailRedirectTo: `${baseUrl}/auth/verified`
         }
       });
 

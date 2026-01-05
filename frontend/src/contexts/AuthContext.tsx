@@ -61,10 +61,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         };
       }
 
-      // Get the base URL from environment or use current origin
-      // For production, use the deployed URL; for development, use current origin
-      // IMPORTANT: For mobile/other devices, this must be a publicly accessible URL
-      const baseUrl = import.meta.env.VITE_APP_URL || window.location.origin;
+      // Use ONLY the production URL from environment variable
+      // No fallback to localhost - must be configured for production
+      const baseUrl = import.meta.env.VITE_APP_URL;
+      if (!baseUrl) {
+        console.error('VITE_APP_URL is not configured. Email confirmation will not work.');
+        return { 
+          data: null, 
+          error: new Error('Email redirect URL not configured. Please set VITE_APP_URL in environment variables.') 
+        };
+      }
       // Use /auth/verified (also support /auth/verify for compatibility)
       const redirectUrl = `${baseUrl}/auth/verified`;
     
