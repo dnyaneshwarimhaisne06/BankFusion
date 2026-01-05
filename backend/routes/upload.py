@@ -10,6 +10,7 @@ from pathlib import Path
 from services.pdf_processor import PDFProcessor
 from utils.serializers import create_response
 from utils.auth_helpers import get_user_id_from_request
+from db.mongo import MongoDB
 import logging
 
 logger = logging.getLogger(__name__)
@@ -17,12 +18,25 @@ logger = logging.getLogger(__name__)
 upload_bp = Blueprint('upload', __name__)
 
 # Upload configuration
-UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'uploads')
+# Use /tmp on Render (writable), or local uploads folder for development
+UPLOAD_FOLDER = os.getenv('UPLOAD_FOLDER', os.path.join(os.path.dirname(os.path.dirname(__file__)), 'uploads'))
+# On Render, use /tmp for writable storage
+if not os.path.exists(UPLOAD_FOLDER) or not os.access(UPLOAD_FOLDER, os.W_OK):
+    UPLOAD_FOLDER = '/tmp/bankfusion_uploads'
+
 ALLOWED_EXTENSIONS = {'pdf'}
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
 
 # Ensure upload folder exists
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+try:
+    os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+    logger.info(f"Upload folder: {UPLOAD_FOLDER}")
+except Exception as e:
+    logger.error(f"Failed to create upload folder {UPLOAD_FOLDER}: {str(e)}")
+    # Fallback to /tmp
+    UPLOAD_FOLDER = '/tmp/bankfusion_uploads'
+    os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+    logger.info(f"Using fallback upload folder: {UPLOAD_FOLDER}")
 
 @upload_bp.route('/upload', methods=['POST', 'OPTIONS'])
 def upload_pdf():
@@ -41,13 +55,17 @@ def upload_pdf():
         # Extract user_id from JWT token
         user_id = get_user_id_from_request(request)
         if not user_id:
+            logger.warning("Upload attempted without authentication")
             return jsonify(create_response(
                 success=False,
                 error="Authentication required. Please log in."
             )), 401
         
+        logger.info(f"Upload request from user: {user_id[:8]}...")
+        
         # Check if file is present
         if 'pdf' not in request.files and 'file' not in request.files:
+            logger.warning("Upload attempted without file")
             return jsonify(create_response(
                 success=False,
                 error="No file provided. Please upload a PDF file."
@@ -55,6 +73,7 @@ def upload_pdf():
         
         # Get file (support both 'pdf' and 'file' field names)
         file = request.files.get('pdf') or request.files.get('file')
+        logger.info(f"Received file: {file.filename if file else 'None'}")
         
         # Validate file
         is_valid, error_msg = PDFProcessor.validate_pdf_file(file)
@@ -79,8 +98,19 @@ def upload_pdf():
         pdf_path = PDFProcessor.save_uploaded_file(file, UPLOAD_FOLDER)
         
         try:
+            # Verify MongoDB connection before processing
+            try:
+                db = MongoDB.get_db()
+                db.command('ping')
+                logger.info("MongoDB connection verified")
+            except Exception as db_error:
+                logger.error(f"MongoDB connection failed: {str(db_error)}")
+                raise Exception(f"MongoDB connection failed: {str(db_error)}")
+            
             # Process PDF: Extract → Normalize → Store in MongoDB (with user_id)
+            logger.info(f"Starting PDF processing for user: {user_id[:8]}...")
             result = PDFProcessor.process_pdf_to_mongodb(pdf_path, user_id=user_id)
+            logger.info(f"PDF processing completed. Transactions: {result.get('transactionsInserted', 0)}")
             
             # Clean up uploaded file after processing
             try:
@@ -110,16 +140,22 @@ def upload_pdf():
                 os.remove(pdf_path)
             except:
                 pass
+            import traceback
+            error_trace = traceback.format_exc()
             logger.error(f"Error processing PDF: {str(e)}")
+            logger.error(f"Traceback: {error_trace}")
             return jsonify(create_response(
                 success=False,
-                error="Failed to process PDF. Please check the file format."
+                error=f"Failed to process PDF: {str(e)}"
             )), 500
             
     except Exception as e:
+        import traceback
+        error_trace = traceback.format_exc()
         logger.error(f"Error in upload_pdf: {str(e)}")
+        logger.error(f"Traceback: {error_trace}")
         return jsonify(create_response(
             success=False,
-            error="Internal server error"
+            error=f"Internal server error: {str(e)}"
         )), 500
 

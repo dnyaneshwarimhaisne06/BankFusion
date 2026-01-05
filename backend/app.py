@@ -103,8 +103,12 @@ def not_found(_):
     return jsonify(create_response(success=False, error="Not found")), 404
 
 @app.errorhandler(500)
-def server_error(_):
-    return jsonify(create_response(success=False, error="Server error")), 500
+def server_error(error):
+    import traceback
+    error_trace = traceback.format_exc()
+    logger.error(f"500 Error: {str(error)}")
+    logger.error(f"Traceback: {error_trace}")
+    return jsonify(create_response(success=False, error=f"Server error: {str(error)}")), 500
 
 # ---------------------------------------------------
 # Startup
