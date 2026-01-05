@@ -115,6 +115,15 @@ def health():
             error=str(e)
         )), 503
 
+@app.after_request
+def after_request(response):
+    """Add CORS headers to all responses"""
+    response.headers.add('Access-Control-Allow-Origin', 'https://bankfusion-frontend-91cx.onrender.com')
+    response.headers.add('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+    response.headers.add('Access-Control-Allow-Credentials', 'true')
+    return response
+
 @app.errorhandler(404)
 def not_found(error):
     """Handle 404 errors"""
@@ -136,11 +145,12 @@ def internal_error(error):
 def handle_preflight():
     """Explicitly handle OPTIONS preflight requests for CORS"""
     if request.method == 'OPTIONS':
-        response = Response()
+        response = Response(status=200)
         response.headers.add('Access-Control-Allow-Origin', 'https://bankfusion-frontend-91cx.onrender.com')
         response.headers.add('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
         response.headers.add('Access-Control-Allow-Headers', 'Content-Type, Authorization')
         response.headers.add('Access-Control-Allow-Credentials', 'true')
+        response.headers.add('Access-Control-Max-Age', '3600')
         return response
 
 @app.before_request
