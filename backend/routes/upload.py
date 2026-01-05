@@ -2,7 +2,7 @@
 PDF Upload API Routes
 """
 
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, Response
 from werkzeug.utils import secure_filename
 import os
 import tempfile
@@ -27,14 +27,14 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 @upload_bp.route('/upload', methods=['POST', 'OPTIONS'])
 def upload_pdf():
     """Upload and process PDF bank statement"""
-    # Handle CORS preflight
+    # Handle CORS preflight (explicit handling for file uploads)
     if request.method == 'OPTIONS':
-        from flask import Response
         response = Response(status=200)
         response.headers.add('Access-Control-Allow-Origin', 'https://bankfusion-frontend-91cx.onrender.com')
         response.headers.add('Access-Control-Allow-Methods', 'POST, OPTIONS')
         response.headers.add('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With')
         response.headers.add('Access-Control-Allow-Credentials', 'true')
+        response.headers.add('Access-Control-Max-Age', '3600')
         return response
     
     try:

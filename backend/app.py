@@ -5,7 +5,7 @@ Main Application Entry Point
 
 import os
 import logging
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request, Response
 from flask_cors import CORS
 
 from config import DEBUG, HOST, PORT
@@ -29,11 +29,18 @@ logger = logging.getLogger("bankfusion")
 app = Flask(__name__)
 
 # ---------------------------------------------------
-# ✅ SINGLE, CORRECT CORS CONFIG
+# ✅ CORS CONFIG - Handles file uploads and all API routes
 # ---------------------------------------------------
 CORS(
     app,
-    resources={r"/api/*": {"origins": "https://bankfusion-frontend-91cx.onrender.com"}},
+    resources={r"/api/*": {
+        "origins": "https://bankfusion-frontend-91cx.onrender.com",
+        "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        "allow_headers": ["Content-Type", "Authorization", "X-Requested-With"],
+        "expose_headers": ["Content-Type"],
+        "supports_credentials": True,
+        "max_age": 3600
+    }},
     supports_credentials=True
 )
 
@@ -70,6 +77,23 @@ def health():
             success=False,
             error=str(e)
         )), 500
+
+# ---------------------------------------------------
+# CORS Preflight Handler (for file uploads)
+# ---------------------------------------------------
+@app.before_request
+def handle_cors_preflight():
+    """Explicitly handle OPTIONS preflight requests"""
+    if request.method == 'OPTIONS':
+        origin = request.headers.get('Origin')
+        if origin == 'https://bankfusion-frontend-91cx.onrender.com':
+            response = Response(status=200)
+            response.headers.add('Access-Control-Allow-Origin', origin)
+            response.headers.add('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
+            response.headers.add('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With')
+            response.headers.add('Access-Control-Allow-Credentials', 'true')
+            response.headers.add('Access-Control-Max-Age', '3600')
+            return response
 
 # ---------------------------------------------------
 # Errors
