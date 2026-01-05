@@ -1,15 +1,19 @@
 /**
  * Flask Backend API Client
- * Connects to the Flask backend running locally or via ngrok
+ * Connects to the Flask backend via Render or other deployment
  * 
  * Configure the API_BASE_URL in your .env file:
- * VITE_FLASK_API_URL=http://localhost:5000/api
+ * VITE_FLASK_API_URL=https://your-backend.onrender.com/api
  */
 
 import { supabase } from '@/integrations/supabase/client';
 
-// Default to localhost:5000 if not configured
-const API_BASE_URL = import.meta.env.VITE_FLASK_API_URL || 'http://localhost:5000/api';
+// Use environment variable only - no fallback to localhost
+const API_BASE_URL = import.meta.env.VITE_FLASK_API_URL;
+
+if (!API_BASE_URL) {
+  console.error('VITE_FLASK_API_URL is not configured. Please set it in your .env file.');
+}
 
 export interface ApiResponse<T = any> {
   success: boolean;
@@ -135,10 +139,10 @@ class FlaskApiClient {
       console.error('[Flask API] Full URL:', `${this.baseUrl}${endpoint}`);
       
       // Provide more specific error messages
-      let errorMessage = 'Network error. Is the Flask server running?';
+      let errorMessage = 'Network error. Cannot connect to backend server.';
       if (error.message) {
         if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
-          errorMessage = 'Cannot connect to backend server. Make sure Flask is running on http://localhost:5000';
+          errorMessage = 'Cannot connect to backend server.';
         } else {
           errorMessage = error.message;
         }

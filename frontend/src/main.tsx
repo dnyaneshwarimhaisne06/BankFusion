@@ -38,8 +38,8 @@ ${error instanceof Error ? error.message + '\n\n' + error.stack : String(error)}
         Common issues:<br/>
         1. Check browser console (F12) for detailed errors<br/>
         2. Ensure all dependencies are installed (npm install)<br/>
-        3. Check if backend server is running on port 5000<br/>
-        4. Verify environment variables are set correctly
+        3. Verify environment variables are set correctly (VITE_FLASK_API_URL)<br/>
+        4. Check if backend server is accessible
       </p>
     </div>
   `;

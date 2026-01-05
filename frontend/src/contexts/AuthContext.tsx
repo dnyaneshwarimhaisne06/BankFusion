@@ -202,8 +202,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       // Call backend to delete user data from MongoDB and Supabase
-      const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
-      const response = await fetch(`${backendUrl}/api/account/delete`, {
+      // Use VITE_FLASK_API_URL which already includes /api prefix
+      const apiBaseUrl = import.meta.env.VITE_FLASK_API_URL;
+      if (!apiBaseUrl) {
+        return { error: new Error('Backend API URL not configured') };
+      }
+      const response = await fetch(`${apiBaseUrl}/account/delete`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${session.access_token}`,
