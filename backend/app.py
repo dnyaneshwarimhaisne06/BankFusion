@@ -30,7 +30,7 @@ def check_venv():
 # Run venv check (non-blocking, just a warning)
 check_venv()
 
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request, Response
 from flask_cors import CORS
 from config import DEBUG, HOST, PORT
 from db.mongo import MongoDB
@@ -52,16 +52,15 @@ logger = logging.getLogger(__name__)
 # Create Flask app
 app = Flask(__name__)
 
-# Production-safe CORS configuration
+# Global CORS configuration (not scoped to resources)
 # Only allow requests from the Render frontend deployment
-CORS(app, resources={
-    r"/api/*": {
-        "origins": ["https://bankfusion-frontend-91cx.onrender.com"],
-        "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-        "allow_headers": ["Content-Type", "Authorization"],
-        "supports_credentials": True
-    }
-})
+CORS(
+    app,
+    origins=["https://bankfusion-frontend-91cx.onrender.com"],
+    methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization"],
+    supports_credentials=True
+)
 
 # Register blueprints
 app.register_blueprint(statements_bp, url_prefix='/api')
@@ -132,6 +131,17 @@ def internal_error(error):
         success=False,
         error="Internal server error"
     )), 500
+
+@app.before_request
+def handle_preflight():
+    """Explicitly handle OPTIONS preflight requests for CORS"""
+    if request.method == 'OPTIONS':
+        response = Response()
+        response.headers.add('Access-Control-Allow-Origin', 'https://bankfusion-frontend-91cx.onrender.com')
+        response.headers.add('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+        response.headers.add('Access-Control-Allow-Credentials', 'true')
+        return response
 
 @app.before_request
 def initialize_db():
