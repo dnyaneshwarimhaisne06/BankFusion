@@ -82,7 +82,7 @@ export default function ExportData() {
 
   const fetchTransactionsForStatement = async (statementId: string): Promise<Transaction[]> => {
     const result = await flaskApi.getTransactionsByStatement(statementId);
-    
+
     if (!result.success) {
       throw new Error(result.error || 'Failed to fetch transactions');
     }

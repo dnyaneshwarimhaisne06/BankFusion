@@ -141,6 +141,20 @@ def initialize_db():
 
 if __name__ == '__main__':
     try:
+        # Check for required OpenAI API key at startup
+        openai_key = os.getenv("OPENAI_API_KEY")
+        if openai_key:
+            logger.info("OPENAI_API_KEY is present in environment.")
+        else:
+            logger.error(
+                "OPENAI_API_KEY is NOT set in the environment. "
+                "Set this variable in your deployment configuration to use AI features."
+            )
+            # Fail fast so deployment doesn't run with a missing key
+            raise SystemExit(
+                "Critical configuration error: OPENAI_API_KEY missing from environment."
+            )
+
         # Try to initialize MongoDB connection (non-blocking)
         try:
             MongoDB.connect()
@@ -156,6 +170,10 @@ if __name__ == '__main__':
         app.run(debug=DEBUG, host=HOST, port=PORT)
     except KeyboardInterrupt:
         logger.info("Shutting down Flask server...")
+    except SystemExit as e:
+        # Re-raise SystemExit after logging so process exits cleanly
+        logger.error(str(e))
+        raise
     except Exception as e:
         logger.error(f"Failed to start application: {str(e)}")
         import traceback

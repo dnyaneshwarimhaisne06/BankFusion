@@ -160,10 +160,17 @@ Return the report as a JSON object with the following structure:
         }
         
     except Exception as e:
-        logger.error(f"Error generating AI summary: {str(e)}")
+        # Treat invalid API key as a permanent failure (do not retry / do not silently fallback)
+        error_text = str(e)
+        status_code = getattr(e, "status_code", None)
+        if status_code == 401 or "401" in error_text or "invalid_api_key" in error_text.lower():
+            logger.error(f"OpenAI 401 error (invalid API key): {error_text}")
+            raise RuntimeError("Invalid OpenAI API key (401) — stopping further processing") from e
+
+        logger.error(f"Error generating AI summary: {error_text}")
         return {
             'success': False,
-            'error': f'Failed to generate AI summary: {str(e)}',
+            'error': f'Failed to generate AI summary: {error_text}',
             'fallback_summary': _generate_fallback_summary(statement_data, transactions)
         }
 

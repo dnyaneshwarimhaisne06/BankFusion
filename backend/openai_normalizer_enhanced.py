@@ -131,6 +131,7 @@ def normalize_transaction_with_openai(txn: Dict) -> Dict:
     }
     
     try:
+        print("⚠️ OpenAI normalization invoked")
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
@@ -169,7 +170,13 @@ def normalize_transaction_with_openai(txn: Dict) -> Dict:
         return fallback_normalization(txn)
     
     except Exception as e:
-        print(f"OpenAI normalization error: {str(e)}")
+        # Treat invalid API key as a permanent failure (no retries, no silent fallback)
+        error_text = str(e)
+        status_code = getattr(e, "status_code", None)
+        if status_code == 401 or "401" in error_text or "invalid_api_key" in error_text.lower():
+            raise RuntimeError("Invalid OpenAI API key (401) — stopping further processing") from e
+
+        print(f"OpenAI normalization error: {error_text}")
         return fallback_normalization(txn)
 
 def fallback_normalization(txn: Dict) -> Dict:

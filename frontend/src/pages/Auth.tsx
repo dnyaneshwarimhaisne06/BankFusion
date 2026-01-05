@@ -164,11 +164,11 @@ export default function Auth() {
             userFriendlyMessage = errorMsg;
           }
           
-          toast({
-            title: 'Login Failed',
+            toast({
+              title: 'Login Failed',
             description: userFriendlyMessage,
-            variant: 'destructive',
-          });
+              variant: 'destructive',
+            });
         } else if (data?.user || data?.session) {
           // Success - user is logged in
           toast({
@@ -177,7 +177,7 @@ export default function Auth() {
           });
           // Small delay to ensure state is updated
           setTimeout(() => {
-            navigate(from, { replace: true });
+          navigate(from, { replace: true });
           }, 100);
         } else {
           // No error but no user data - unexpected state
@@ -395,19 +395,19 @@ export default function Auth() {
 
           <div className="mt-6 space-y-3">
             <div className="text-center">
-              <p className="text-muted-foreground">
-                {isLogin ? "Don't have an account?" : 'Already have an account?'}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsLogin(!isLogin);
-                    setErrors({});
-                  }}
-                  className="ml-2 text-primary hover:underline font-medium"
-                >
-                  {isLogin ? 'Sign up' : 'Sign in'}
-                </button>
-              </p>
+            <p className="text-muted-foreground">
+              {isLogin ? "Don't have an account?" : 'Already have an account?'}
+              <button
+                type="button"
+                onClick={() => {
+                  setIsLogin(!isLogin);
+                  setErrors({});
+                }}
+                className="ml-2 text-primary hover:underline font-medium"
+              >
+                {isLogin ? 'Sign up' : 'Sign in'}
+              </button>
+            </p>
             </div>
             {isLogin && (
               <div className="text-center">

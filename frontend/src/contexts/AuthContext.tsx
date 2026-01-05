@@ -67,15 +67,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const baseUrl = import.meta.env.VITE_APP_URL || window.location.origin;
       // Use /auth/verified (also support /auth/verify for compatibility)
       const redirectUrl = `${baseUrl}/auth/verified`;
-      
+    
       const { data, error } = await supabase.auth.signUp({
         email: trimmedEmail,
-        password,
-        options: {
-          emailRedirectTo: redirectUrl
-        }
-      });
-      
+      password,
+      options: {
+        emailRedirectTo: redirectUrl
+      }
+    });
+    
       // If successful and session exists, update user state
       if (data?.session) {
         setSession(data.session);
@@ -115,9 +115,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       const { data, error } = await supabase.auth.signInWithPassword({
         email: trimmedEmail,
-        password,
-      });
-      
+      password,
+    });
+    
       // Check if email is confirmed
       if (data?.user && !data.user.email_confirmed_at) {
         // Sign out immediately if email not confirmed
@@ -224,7 +224,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       
       // Sign out from Supabase (account should already be deleted, but clear local storage)
       try {
-        await supabase.auth.signOut();
+    await supabase.auth.signOut();
       } catch (signOutError) {
         // Ignore sign out errors - account is already deleted
         console.log('Sign out after deletion (expected):', signOutError);
