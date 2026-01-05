@@ -1722,7 +1722,16 @@ def normalize_transaction(txn: Dict) -> Dict:
     
     # STEP 2: ONLY IF STEP 1 RETURNS "others" OR "Unknown"
     # → Call OpenAI normalizer to infer: merchant, category, transaction_type
-    if is_rule_weak:
+    # OPTIMIZATION: Skip OpenAI for very simple transfers to reduce API calls and timeout
+    # Only use OpenAI if description has some complexity (length > 20 chars or contains numbers/patterns)
+    description = txn.get('description', '') or txn.get('narration', '')
+    is_simple_transfer = (
+        len(description) < 20 and 
+        rule_category == 'transfer' and
+        not any(char.isdigit() for char in description[:30])  # No account numbers/amounts visible
+    )
+    
+    if is_rule_weak and not is_simple_transfer:
         try:
             if OPENAI_AVAILABLE:
                 openai_suggestion = normalize_transaction_with_openai(txn)
