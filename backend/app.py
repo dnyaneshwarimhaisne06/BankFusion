@@ -58,8 +58,10 @@ CORS(
     app,
     origins=["https://bankfusion-frontend-91cx.onrender.com"],
     methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["Content-Type", "Authorization"],
-    supports_credentials=True
+    allow_headers=["Content-Type", "Authorization", "X-Requested-With"],
+    expose_headers=["Content-Type"],
+    supports_credentials=True,
+    max_age=3600
 )
 
 # Register blueprints
@@ -117,11 +119,14 @@ def health():
 
 @app.after_request
 def after_request(response):
-    """Add CORS headers to all responses"""
-    response.headers.add('Access-Control-Allow-Origin', 'https://bankfusion-frontend-91cx.onrender.com')
-    response.headers.add('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
-    response.headers.add('Access-Control-Allow-Headers', 'Content-Type, Authorization')
-    response.headers.add('Access-Control-Allow-Credentials', 'true')
+    """Add CORS headers to all responses (backup to Flask-CORS)"""
+    origin = request.headers.get('Origin')
+    if origin == 'https://bankfusion-frontend-91cx.onrender.com':
+        response.headers.add('Access-Control-Allow-Origin', 'https://bankfusion-frontend-91cx.onrender.com')
+        response.headers.add('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With')
+        response.headers.add('Access-Control-Allow-Credentials', 'true')
+        response.headers.add('Access-Control-Max-Age', '3600')
     return response
 
 @app.errorhandler(404)
@@ -145,13 +150,15 @@ def internal_error(error):
 def handle_preflight():
     """Explicitly handle OPTIONS preflight requests for CORS"""
     if request.method == 'OPTIONS':
-        response = Response(status=200)
-        response.headers.add('Access-Control-Allow-Origin', 'https://bankfusion-frontend-91cx.onrender.com')
-        response.headers.add('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
-        response.headers.add('Access-Control-Allow-Headers', 'Content-Type, Authorization')
-        response.headers.add('Access-Control-Allow-Credentials', 'true')
-        response.headers.add('Access-Control-Max-Age', '3600')
-        return response
+        origin = request.headers.get('Origin')
+        if origin == 'https://bankfusion-frontend-91cx.onrender.com':
+            response = Response(status=200)
+            response.headers.add('Access-Control-Allow-Origin', 'https://bankfusion-frontend-91cx.onrender.com')
+            response.headers.add('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
+            response.headers.add('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With')
+            response.headers.add('Access-Control-Allow-Credentials', 'true')
+            response.headers.add('Access-Control-Max-Age', '3600')
+            return response
 
 @app.before_request
 def initialize_db():

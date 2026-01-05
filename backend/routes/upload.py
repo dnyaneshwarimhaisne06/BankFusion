@@ -24,9 +24,19 @@ MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
 # Ensure upload folder exists
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-@upload_bp.route('/upload', methods=['POST'])
+@upload_bp.route('/upload', methods=['POST', 'OPTIONS'])
 def upload_pdf():
     """Upload and process PDF bank statement"""
+    # Handle CORS preflight
+    if request.method == 'OPTIONS':
+        from flask import Response
+        response = Response(status=200)
+        response.headers.add('Access-Control-Allow-Origin', 'https://bankfusion-frontend-91cx.onrender.com')
+        response.headers.add('Access-Control-Allow-Methods', 'POST, OPTIONS')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With')
+        response.headers.add('Access-Control-Allow-Credentials', 'true')
+        return response
+    
     try:
         # Extract user_id from JWT token
         user_id = get_user_id_from_request(request)
