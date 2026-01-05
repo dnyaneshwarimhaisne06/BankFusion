@@ -5,6 +5,7 @@ Bank Transactions API Routes
 from flask import Blueprint, request, jsonify
 from db.repositories import TransactionRepository, StatementRepository
 from utils.serializers import serialize_documents, create_response
+from utils.auth_helpers import get_user_id_from_request
 from config import BANK_TYPES
 import logging
 
@@ -16,6 +17,14 @@ transactions_bp = Blueprint('transactions', __name__)
 def get_transactions():
     """Get transactions with optional filters (statementId or bankType)"""
     try:
+        # Extract user_id from JWT token
+        user_id = get_user_id_from_request(request)
+        if not user_id:
+            return jsonify(create_response(
+                success=False,
+                error="Authentication required. Please log in."
+            )), 401
+        
         statement_id = request.args.get('statementId', None)
         bank_type = request.args.get('bankType', None)
         limit = request.args.get('limit', 1000, type=int)

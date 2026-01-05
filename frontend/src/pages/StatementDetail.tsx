@@ -217,9 +217,10 @@ export default function StatementDetail() {
       setMonthlyData(sortedMonthly);
     } catch (error: any) {
       console.error('Error fetching statement data:', error);
+      const errorMessage = error?.message || error?.error || String(error) || 'Could not fetch statement data';
       toast({
         title: 'Failed to load statement',
-        description: error.message || 'Could not fetch statement data',
+        description: errorMessage,
         variant: 'destructive',
       });
     } finally {
