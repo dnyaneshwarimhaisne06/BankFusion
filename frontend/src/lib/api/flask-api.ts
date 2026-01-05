@@ -89,16 +89,27 @@ export interface AnalyticsSummary {
 }
 
 class FlaskApiClient {
-  private baseUrl: string;
+  private baseUrl: string | undefined;
 
-  constructor(baseUrl: string) {
+  constructor(baseUrl: string | undefined) {
     this.baseUrl = baseUrl;
+    if (!baseUrl) {
+      console.error('[Flask API] API_BASE_URL is undefined. Set VITE_FLASK_API_URL in environment variables.');
+    }
   }
 
   private async request<T>(
     endpoint: string,
     options: RequestInit = {}
   ): Promise<ApiResponse<T>> {
+    // Validate baseUrl is configured
+    if (!this.baseUrl) {
+      return {
+        success: false,
+        error: 'Backend API URL not configured. Please set VITE_FLASK_API_URL environment variable.',
+      };
+    }
+
     try {
       // Get Supabase session token for authentication
       const { data: { session } } = await supabase.auth.getSession();
@@ -159,6 +170,15 @@ class FlaskApiClient {
   
   async uploadPdf(file: File): Promise<ApiResponse<UploadResult>> {
     try {
+      // Validate baseUrl is configured
+      if (!this.baseUrl) {
+        console.error('[Flask API] VITE_FLASK_API_URL is not configured');
+        return {
+          success: false,
+          error: 'Backend API URL not configured. Please set VITE_FLASK_API_URL environment variable.',
+        };
+      }
+
       // Get Supabase session token for authentication
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token;
