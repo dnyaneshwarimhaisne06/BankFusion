@@ -70,16 +70,22 @@ export default function Auth() {
 
     setLoading(true);
     try {
-      // Use ONLY production URL - no fallback to localhost
-      const baseUrl = import.meta.env.VITE_APP_URL;
+      // Use production URL from environment, or fallback to current origin if on deployed domain
+      let baseUrl = import.meta.env.VITE_APP_URL;
+      
+      // If VITE_APP_URL not set, use current origin as fallback (but only if not localhost)
       if (!baseUrl) {
-        toast({
-          title: 'Configuration Error',
-          description: 'VITE_APP_URL is not configured. Cannot send confirmation email.',
-          variant: 'destructive',
-        });
-        setLoading(false);
-        return;
+        const currentOrigin = window.location.origin;
+        if (currentOrigin.includes('localhost') || currentOrigin.includes('127.0.0.1')) {
+          toast({
+            title: 'Configuration Error',
+            description: 'VITE_APP_URL is not configured. Cannot send confirmation email.',
+            variant: 'destructive',
+          });
+          setLoading(false);
+          return;
+        }
+        baseUrl = currentOrigin;
       }
 
       const { error } = await supabase.auth.resend({
