@@ -20,7 +20,7 @@ import {
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { safeFormatDate } from '@/lib/utils';
-import { formatINR } from '@/lib/currency';
+import { formatINRAscii } from '@/lib/currency';
 import { toast } from 'sonner';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -175,12 +175,12 @@ export default function ExportData() {
       
       autoTable(doc, {
         startY: 80,
-        head: [['Metric', 'Amount (₹)']],
+        head: [['Metric', 'Amount (Rs.)']],
         body: [
-          ['Total Credit', formatINR(totalCredit)],
-          ['Total Debit', formatINR(totalDebit)],
-          ['Net Flow', formatINR(totalCredit - totalDebit)],
-          ['Final Balance', formatINR(lastBalance)],
+          ['Total Credit', formatINRAscii(totalCredit)],
+          ['Total Debit', formatINRAscii(totalDebit)],
+          ['Net Flow', formatINRAscii(totalCredit - totalDebit)],
+          ['Final Balance', formatINRAscii(lastBalance)],
         ],
         theme: 'striped',
         headStyles: { fillColor: [59, 130, 246] },
@@ -196,7 +196,7 @@ export default function ExportData() {
 
       const categoryData = Array.from(categoryTotals.entries())
         .sort((a, b) => b[1].debit - a[1].debit)
-        .map(([category, data]) => [category, data.count.toString(), formatINR(data.debit)]);
+        .map(([category, data]) => [category, data.count.toString(), formatINRAscii(data.debit)]);
 
       autoTable(doc, {
         startY: categoryY + 4,
@@ -217,9 +217,9 @@ export default function ExportData() {
         t.date,
         t.description.substring(0, 30) + (t.description.length > 30 ? '...' : ''),
         t.category || 'Uncategorized',
-        formatINR(Number(t.debit) || 0),
-        formatINR(Number(t.credit) || 0),
-        formatINR(Number(t.balance) || 0),
+        formatINRAscii(Number(t.debit) || 0),
+        formatINRAscii(Number(t.credit) || 0),
+        formatINRAscii(Number(t.balance) || 0),
       ]);
 
       autoTable(doc, {

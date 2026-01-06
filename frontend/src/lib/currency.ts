@@ -32,3 +32,13 @@ export function parseINR(value: string): number {
   const cleaned = value.replace(/[₹,\s]/g, '');
   return parseFloat(cleaned) || 0;
 }
+
+export function formatINRAscii(amount: number | null | undefined): string {
+  if (amount === null || amount === undefined) return 'Rs. 0.00';
+  const num = Number(amount);
+  const formatted = new Intl.NumberFormat('en-IN', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(num);
+  return `Rs. ${formatted}`;
+}
