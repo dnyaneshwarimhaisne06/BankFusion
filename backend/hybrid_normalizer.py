@@ -409,7 +409,9 @@ def apply_global_rules(text: str, suggested_result: Dict, debit_amount: float, c
         (r'\bMEESHO\b', 'shopping'),
         (r'\bTATA\s*SKY\b', 'bills_utilities'),
         (r'\bTATASKY\b', 'bills_utilities'),
-        (r'\bFASTAG\b', 'travel'),
+        (r'FASTAG', 'travel'),
+        (r'RAILWAY', 'travel'),
+        (r'RAIL\s+TICKET', 'travel'),
     ]
     for pattern, category in merchant_keyword_rules:
         if re.search(pattern, text_upper):
