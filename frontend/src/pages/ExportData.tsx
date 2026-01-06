@@ -131,7 +131,7 @@ export default function ExportData() {
       // Calculate stats
       const totalDebit = transactions.reduce((sum, t) => sum + (Number(t.debit) || 0), 0);
       const totalCredit = transactions.reduce((sum, t) => sum + (Number(t.credit) || 0), 0);
-      const lastBalance = transactions.length > 0 ? Number(transactions[transactions.length - 1].balance) || 0 : 0;
+      const lastBalance = transactions.length > 0 ? Math.abs(Number(transactions[transactions.length - 1].balance) || 0) : 0;
 
       // Calculate category totals
       const categoryTotals = new Map<string, { debit: number; count: number }>();
