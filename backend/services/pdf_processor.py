@@ -50,15 +50,21 @@ def detect_bank_type_from_name(bank_name: str, file_path: str = None) -> str:
     
     bank_name_upper = bank_name.upper()
     
+    # Sort keys by length descending to match longest pattern first
+    # This prevents "Bank of India" matching inside "Central Bank of India"
+    sorted_keys = sorted(BANK_NAME_MAP.keys(), key=len, reverse=True)
+    
     # Check bank name
-    for key, value in BANK_NAME_MAP.items():
+    for key in sorted_keys:
+        value = BANK_NAME_MAP[key]
         if key.upper() in bank_name_upper:
             return value
     
     # Check file path if provided
     if file_path:
         path_upper = str(file_path).upper()
-        for key, value in BANK_NAME_MAP.items():
+        for key in sorted_keys:
+            value = BANK_NAME_MAP[key]
             if key.upper() in path_upper:
                 return value
     

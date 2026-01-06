@@ -70,13 +70,18 @@ def detect_bank_type(bank_name: str, file_path: str) -> str:
     if 'CENTRAL' in path_upper and 'STATEMENT' in path_upper:
         return 'CBI'
     
+    # Sort keys by length descending to prevent substring matching issues
+    sorted_keys = sorted(BANK_NAME_MAP.keys(), key=len, reverse=True)
+
     # Check bank name from metadata
-    for key, value in BANK_NAME_MAP.items():
+    for key in sorted_keys:
+        value = BANK_NAME_MAP[key]
         if key.upper() in bank_name_upper:
             return value
     
     # Check file path for other banks
-    for key, value in BANK_NAME_MAP.items():
+    for key in sorted_keys:
+        value = BANK_NAME_MAP[key]
         if key.upper() in path_upper:
             return value
     
