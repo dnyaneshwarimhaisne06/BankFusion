@@ -58,6 +58,59 @@ export default function Auth() {
     }
   }, [resendConfirmation, toast]);
 
+  useEffect(() => {
+    const tryVerifyFromHash = async () => {
+      try {
+        const hashParams = new URLSearchParams(window.location.hash.substring(1));
+        const accessToken = hashParams.get('access_token');
+        const refreshToken = hashParams.get('refresh_token');
+        const type = hashParams.get('type');
+        const error = hashParams.get('error');
+        const errorDescription = hashParams.get('error_description');
+        const errorCode = hashParams.get('error_code');
+        if (error) {
+          toast({
+            title: 'Verification Failed',
+            description:
+              errorCode === 'otp_expired'
+                ? 'This confirmation link has expired. Please request a new confirmation email.'
+                : errorDescription || 'Invalid confirmation link.',
+            variant: 'destructive',
+          });
+          return;
+        }
+        if (accessToken && refreshToken && (type === 'signup' || type === 'email' || type === 'recovery')) {
+          const { data, error: sessionError } = await supabase.auth.setSession({
+            access_token: accessToken,
+            refresh_token: refreshToken,
+          });
+          if (sessionError) {
+            toast({
+              title: 'Verification Failed',
+              description: sessionError.message || 'Failed to verify email',
+              variant: 'destructive',
+            });
+            return;
+          }
+          if (data.session && data.user) {
+            if (data.user.email_confirmed_at) {
+              await supabase.auth.signOut();
+              toast({
+                title: 'Email Verified!',
+                description: 'Your email has been confirmed. You can now log in.',
+              });
+              // Clear hash to avoid re-processing
+              history.replaceState(null, '', window.location.pathname);
+            }
+          }
+        }
+      } catch (_) {
+        // ignore
+      }
+    };
+    tryVerifyFromHash();
+  }, [toast]);
+
   const handleResendConfirmation = async () => {
     if (!email) {
       toast({
@@ -92,7 +145,7 @@ export default function Auth() {
         type: 'signup',
         email: email.trim(),
         options: {
-          emailRedirectTo: `${baseUrl}/auth/verified`
+          emailRedirectTo: `${baseUrl}/auth`
         }
       });
 

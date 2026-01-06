@@ -81,8 +81,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         console.warn('VITE_APP_URL not set, using current origin as fallback:', baseUrl);
       }
       
-      // Use /auth/verified (also support /auth/verify for compatibility)
-      const redirectUrl = `${baseUrl}/auth/verified`;
+      // Redirect to /auth (root-auth route is always available on static hosting)
+      const redirectUrl = `${baseUrl}/auth`;
     
       const { data, error } = await supabase.auth.signUp({
         email: trimmedEmail,
