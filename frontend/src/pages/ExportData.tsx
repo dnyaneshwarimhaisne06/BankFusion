@@ -180,7 +180,7 @@ export default function ExportData() {
           ['Total Credit', formatINRAscii(totalCredit)],
           ['Total Debit', formatINRAscii(totalDebit)],
           ['Net Flow', formatINRAscii(totalCredit - totalDebit)],
-          ['Final Balance', formatINRAscii(lastBalance)],
+          ['Final Balance', formatINRAscii(lastBalance).replace('-', '')],
         ],
         theme: 'striped',
         headStyles: { fillColor: [59, 130, 246] },
