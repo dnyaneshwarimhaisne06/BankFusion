@@ -5,6 +5,7 @@ apply_global_rules() is the FINAL AUTHORITY
 """
 
 import re
+import os
 from rule_based_normalizer import normalize_transaction as rule_based_normalize
 from typing import Dict
 
@@ -17,6 +18,9 @@ except ImportError:
     def normalize_transaction_with_openai(txn: Dict) -> Dict:
         """Fallback when OpenAI is not available"""
         return {}
+
+def is_openai_enabled() -> bool:
+    return OPENAI_AVAILABLE and os.getenv('DISABLE_OPENAI_NORMALIZATION', '0') != '1'
 
 # Known brand mappings (module-level for use in multiple functions)
 KNOWN_BRANDS = {
@@ -1733,7 +1737,7 @@ def normalize_transaction(txn: Dict) -> Dict:
     
     if is_rule_weak and not is_simple_transfer:
         try:
-            if OPENAI_AVAILABLE:
+            if is_openai_enabled():
                 openai_suggestion = normalize_transaction_with_openai(txn)
             else:
                 openai_suggestion = {}  # Skip OpenAI if not available

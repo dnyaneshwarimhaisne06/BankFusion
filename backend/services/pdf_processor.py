@@ -128,26 +128,23 @@ class PDFProcessor:
             # Step 3: Normalize transactions
             logger.info(f"Normalizing {len(transactions)} transactions...")
             normalized_transactions = []
-            
-            # Use ThreadPoolExecutor for parallel processing to handle OpenAI calls efficiently
             import concurrent.futures
-            
+            max_txns = int(os.getenv('MAX_NORMALIZE_TRANSACTIONS', '300'))
+            txns_to_process = transactions[:max_txns]
+            disable_openai_threshold = int(os.getenv('DISABLE_OPENAI_THRESHOLD', '120'))
+            if len(txns_to_process) > disable_openai_threshold:
+                os.environ['DISABLE_OPENAI_NORMALIZATION'] = '1'
+            else:
+                os.environ.pop('DISABLE_OPENAI_NORMALIZATION', None)
             def process_single_txn(txn):
                 try:
                     normalized = normalize_transaction(txn)
-                    return {
-                        'original': txn,
-                        'normalized': normalized
-                    }
+                    return {'original': txn, 'normalized': normalized}
                 except Exception as e:
                     logger.warning(f"Failed to normalize transaction: {str(e)}")
                     return None
-
-            # Use max_workers=10 to balance speed and rate limits
             with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-                results = list(executor.map(process_single_txn, transactions))
-            
-            # Filter out None results
+                results = list(executor.map(process_single_txn, txns_to_process))
             normalized_transactions = [r for r in results if r is not None]
             
             if not normalized_transactions:
