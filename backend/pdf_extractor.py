@@ -51,12 +51,16 @@ def extract_account_info(pdf_path: str) -> Dict:
             header_area = combined_text[:2000] if len(combined_text) > 2000 else combined_text
             
             # Check for Central Bank in header area - MUST be detected FIRST
-            if ("CENTRAL BANK of India" in header_area or 
-                "Central Bank of India" in header_area or
-                ("CENTRAL BANK" in header_area.upper() and "of India" in header_area)):
+            # Updated to match strict guard logic (remove "of India" dependency)
+            if "CENTRAL BANK" in header_area.upper() or "CBIN" in header_area.upper():
                 bank = "Central Bank of India"
                 account_info["bank_name"] = "Central Bank of India"
                 print("✓ STRICT OVERRIDE: Central Bank of India detected in header - FORCING bank name")
+            elif "UNION BANK" in header_area.upper() or "UBIN" in header_area.upper():
+                # Also add strict check for Union Bank in header to be consistent
+                bank = "Union Bank of India"
+                account_info["bank_name"] = "Union Bank of India"
+                print("✓ STRICT OVERRIDE: Union Bank of India detected in header - FORCING bank name")
             else:
                 # Detect bank - CRITICAL: Must NEVER be "Unknown"
                 bank = detect_bank(combined_text)

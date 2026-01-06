@@ -97,6 +97,11 @@ def test_bank_detection():
         {"text": "CBIN0280001", "exp": "Central Bank of India"},
         {"text": "SOME TEXT WITH CBIN CODE", "exp": "Central Bank of India"},
         
+        # Multiline/Malformed Header Tests (User Reported Issue)
+        {"text": "CENTRAL BANK\nOF INDIA", "exp": "Central Bank of India"},
+        {"text": "CENTRAL BANK\n of India", "exp": "Central Bank of India"},
+        {"text": "CENTRAL  BANK  OF  INDIA", "exp": "Central Bank of India"},
+        
         # Substring Collision Tests (CRITICAL)
         {"text": "UNION BANK OF INDIA - BOI BRANCH", "exp": "Union Bank of India"},
         {"text": "CENTRAL BANK OF INDIA - BOI BRANCH", "exp": "Central Bank of India"},
