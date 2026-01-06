@@ -2032,6 +2032,72 @@ def extract_from_table_universal_improved(table: List[List], bank: str) -> List[
                 # Update row index to skip continuation rows we've processed
                 if continuation_row_idx > i + 1:
                     i = continuation_row_idx - 1  # Will be incremented at end of loop
+        elif bank == "Axis Bank":
+            description_lines = []
+            current_row_desc = safe_extract_cell(row, desc_col) or ""
+            if current_row_desc and current_row_desc.strip():
+                description_lines.append(current_row_desc.strip())
+            continuation_row_idx = i + 1
+            max_continuation_rows = 20
+            while continuation_row_idx < len(table) and len(description_lines) < max_continuation_rows:
+                next_row = table[continuation_row_idx]
+                if not next_row:
+                    break
+                next_date = safe_extract_cell(next_row, date_col)
+                next_debit = safe_extract_cell(next_row, debit_col) if debit_col is not None else ""
+                next_credit = safe_extract_cell(next_row, credit_col) if credit_col is not None else ""
+                has_amounts = parse_amount_improved(next_debit) > 0 or parse_amount_improved(next_credit) > 0
+                if is_valid_date_improved(next_date) or has_amounts:
+                    break
+                continuation_desc = safe_extract_cell(next_row, desc_col) or ""
+                if continuation_desc and continuation_desc.strip():
+                    description_lines.append(continuation_desc.strip())
+                continuation_row_idx += 1
+            meaningful_lines = []
+            for line in description_lines:
+                s = line.strip()
+                if not s:
+                    continue
+                u = s.upper()
+                is_generic = (
+                    u == "TO TRF." or
+                    u == "TO TRF" or
+                    u == "BY TRF." or
+                    u == "BY TRF" or
+                    re.match(r'^TO\s+TRF\.?\s*$', u) or
+                    re.match(r'^BY\s+TRF\.?\s*$', u) or
+                    re.match(r'^UPI\s+RRN', u) or
+                    re.match(r'^RRN\s+\d+', u) or
+                    re.match(r'^\d+$', u) or
+                    re.match(r'^[^\w]+$', u)
+                )
+                if not is_generic:
+                    meaningful_lines.append(s)
+            final_description = ""
+            for ml in meaningful_lines:
+                up = ml.upper().strip()
+                if up.startswith("TRF TO"):
+                    final_description = ml
+                    break
+                if not final_description and up.startswith("TRF FROM"):
+                    final_description = ml
+                    break
+                if not final_description and "SALARY CREDIT" in up:
+                    final_description = "SALARY CREDIT"
+                    break
+                if not final_description and "REFUND" in up:
+                    final_description = ml
+                    break
+            if not final_description:
+                if meaningful_lines:
+                    final_description = meaningful_lines[-1]
+                elif description_lines:
+                    final_description = description_lines[-1].strip()
+                else:
+                    final_description = current_row_desc.strip()
+            description = final_description.strip()
+            if continuation_row_idx > i + 1:
+                i = continuation_row_idx - 1
             # For other banks, use standard description extraction
             # Check all columns for additional description text
             if desc_col is not None:
