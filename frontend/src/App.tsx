@@ -2,7 +2,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, useNavigate } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
@@ -37,6 +37,7 @@ const App = () => (
         <Toaster />
         <Sonner />
         <BrowserRouter>
+          <TokenRedirector />
           <Routes>
             <Route path="/" element={<Index />} />
             <Route path="/auth" element={<Auth />} />
@@ -124,3 +125,18 @@ const App = () => (
 );
 
 export default App;
+
+function TokenRedirector() {
+  const navigate = useNavigate();
+  // Lightweight global handler: if Supabase tokens are present on non-/auth routes, send to /auth
+  // This ensures static hosting without rewrites still processes verification tokens reliably.
+  if (typeof window !== 'undefined') {
+    const hash = window.location.hash || '';
+    if (hash.includes('access_token=') || hash.includes('error=')) {
+      if (window.location.pathname !== '/auth') {
+        navigate('/auth', { replace: true });
+      }
+    }
+  }
+  return null;
+}

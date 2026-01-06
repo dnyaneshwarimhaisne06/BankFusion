@@ -145,7 +145,7 @@ export default function Auth() {
         type: 'signup',
         email: email.trim(),
         options: {
-          emailRedirectTo: `${baseUrl}/auth`
+          emailRedirectTo: `${baseUrl}/`
         }
       });
 
