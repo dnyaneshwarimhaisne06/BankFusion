@@ -605,8 +605,7 @@ def detect_bank(text: str) -> str:
     # Strategy 2: Check explicit bank name patterns (priority order matters)
     # CRITICAL: Check Central Bank of India FIRST (before Bank of India) to avoid false matches
     # This override MUST take precedence over any fuzzy or similarity-based detection
-    if "CENTRAL BANK OF INDIA" in text_upper or \
-       "CENTRAL BANK of India" in text or \
+    if re.search(r'CENTRAL\s+BANK\s+OF\s+INDIA', text_upper) or \
        ("CENTRAL BANK" in text_upper and re.search(r'CBIN', text_upper)):
         return "Central Bank of India"
     
@@ -634,7 +633,7 @@ def detect_bank(text: str) -> str:
     # Central Bank of India already checked above (priority), skip here to avoid duplicate
     
     # Check Union Bank of India
-    if "UNION BANK OF INDIA" in text_upper or \
+    if re.search(r'UNION\s+BANK\s+OF\s+INDIA', text_upper) or \
        ("UNION BANK" in text_upper and re.search(r'UBIN', text_upper)):
         return "Union Bank of India"
     
@@ -659,16 +658,17 @@ def detect_bank(text: str) -> str:
     # Strategy 4: Check for any bank name pattern (fallback)
     if "BANK" in header_text:
         # Try to extract bank name from common patterns
-        bank_patterns = [
-            (r'([A-Z][A-Z\s]+?)\s+BANK\s+OF\s+INDIA', 'Bank of India'),
-            (r'([A-Z][A-Z\s]+?)\s+BANK', lambda m: f"{m.group(1).title()} Bank"),
-        ]
-        for pattern, bank_name in bank_patterns:
-            match = re.search(pattern, header_text)
-            if match:
-                if callable(bank_name):
-                    return bank_name(match)
-                return bank_name
+        boi_match = re.search(r'([A-Z][A-Z\s]+?)\s+BANK\s+OF\s+INDIA', header_text)
+        if boi_match:
+            prefix = boi_match.group(1).strip()
+            if re.fullmatch(r'CENTRAL', prefix):
+                return "Central Bank of India"
+            if re.fullmatch(r'UNION', prefix):
+                return "Union Bank of India"
+            return "Bank of India"
+        any_bank = re.search(r'([A-Z][A-Z\s]+?)\s+BANK', header_text)
+        if any_bank:
+            return f"{any_bank.group(1).title()} Bank"
     
     # Strategy 5: Last resort - check filename if available (but prefer PDF content)
     # This should rarely be needed, but better than "Unknown"

@@ -34,9 +34,11 @@ BANK_NAME_MAP = {
     'Central Bank of India': 'CBI',
     'Central Bank': 'CBI',
     'CBI': 'CBI',
+    'CENTRAL BANK OF INDIA': 'CBI',
     'Union Bank of India': 'UNION',
     'Union Bank': 'UNION',
     'UNION': 'UNION',
+    'UNION BANK OF INDIA': 'UNION',
     'Axis Bank': 'AXIS',
     'AXIS': 'AXIS'
 }
