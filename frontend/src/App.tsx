@@ -127,15 +127,18 @@ const App = () => (
 export default App;
 
 function TokenRedirector() {
-  const navigate = useNavigate();
-  // Lightweight global handler: if Supabase tokens are present on non-/auth routes, send to /auth
-  // This ensures static hosting without rewrites still processes verification tokens reliably.
+  // SPA-friendly bootstrap: fix deep-link refresh by rewriting from 404.html redirect
+  // 1) If "?p=/route" is present, rewrite the path without reload
+  // 2) If Supabase tokens are in hash and route is not /auth, rewrite to /auth preserving hash
   if (typeof window !== 'undefined') {
+    const params = new URLSearchParams(window.location.search);
+    const p = params.get('p');
+    if (p && window.location.pathname === '/') {
+      window.history.replaceState(null, '', p + (window.location.hash || ''));
+    }
     const hash = window.location.hash || '';
-    if (hash.includes('access_token=') || hash.includes('error=')) {
-      if (window.location.pathname !== '/auth') {
-        navigate('/auth', { replace: true });
-      }
+    if ((hash.includes('access_token=') || hash.includes('error=')) && window.location.pathname !== '/auth') {
+      window.history.replaceState(null, '', '/auth' + hash);
     }
   }
   return null;
