@@ -42,6 +42,9 @@ KNOWN_BRANDS = {
         'SUBWAY': 'Subway',
         'HALDIRAM': 'Haldiram',
         'HALDIRAMS': 'Haldiram',
+        'STARBUCKS': 'Starbucks',
+        'CAFE COFFEE DAY': 'Cafe Coffee Day',
+        'CCD': 'Cafe Coffee Day',
         'SPENCERS': "Spencer's",
         "SPENCER'S": "Spencer's",
         'SPENCER': "Spencer's",
@@ -60,7 +63,11 @@ KNOWN_BRANDS = {
         'GROFERS': 'Grofers',
         'AJIO': 'AJIO',
         'AMAZON': 'Amazon',
+        'AMAZON PRIME': 'Amazon Prime',
+        'PRIME VIDEO': 'Amazon Prime',
+        'PRIME': 'Amazon Prime',
         'FLIPKART': 'Flipkart',
+        'MEESHO': 'Meesho',
         'MYNTRA': 'Myntra',
         'PANTALOONS': 'Pantaloons',
         'WESTSIDE': 'Westside',
@@ -73,6 +80,14 @@ KNOWN_BRANDS = {
         'BOOKMYSHOW': 'BookMyShow',
         'CINEMA': 'Cinema',
         'MOVIE': 'Movie',
+        'NETFLIX': 'Netflix',
+        'HOTSTAR': 'Hotstar',
+        'DISNEY HOTSTAR': 'Hotstar',
+        'DISNEY+ HOTSTAR': 'Hotstar',
+        'SONYLIV': 'SonyLIV',
+        'SONY LIV': 'SonyLIV',
+        'ZEE5': 'ZEE5',
+        'SPOTIFY': 'Spotify',
         'OLA': 'Ola',
         'UBER': 'Uber',
         'RAPIDO': 'Rapido',
@@ -118,6 +133,8 @@ KNOWN_BRANDS = {
         'FIBER': 'Fiber',
         'BROADBAND': 'Broadband',
         'DTH': 'DTH',
+        'TATA SKY': 'Tata Sky',
+        'TATASKY': 'Tata Sky',
         'ELECTRICITY': 'Electricity',
         'GAS': 'Gas',
         'LIC': 'LIC',
@@ -374,6 +391,34 @@ def apply_global_rules(text: str, suggested_result: Dict, debit_amount: float, c
     matched_transaction_type = None
     matched_channel = None
     matched_debit_or_credit = None
+    
+    # Global merchant keyword overrides (runs before transfer)
+    merchant_keyword_rules = [
+        (r'\bNETFLIX\b', 'entertainment'),
+        (r'\bHOTSTAR\b', 'entertainment'),
+        (r'\bDISNEY\+?\s*HOTSTAR\b', 'entertainment'),
+        (r'\bAMAZON\s+PRIME\b', 'entertainment'),
+        (r'\bPRIME\s+VIDEO\b', 'entertainment'),
+        (r'\bSONY\s*LIV\b', 'entertainment'),
+        (r'\bSONYLIV\b', 'entertainment'),
+        (r'\bZEE5\b', 'entertainment'),
+        (r'\bSPOTIFY\b', 'entertainment'),
+        (r'\bSTARBUCKS\b', 'food_dining'),
+        (r'\bCAFE\s+COFFEE\s+DAY\b', 'food_dining'),
+        (r'\bCCD\b', 'food_dining'),
+        (r'\bMEESHO\b', 'shopping'),
+        (r'\bTATA\s*SKY\b', 'bills_utilities'),
+        (r'\bTATASKY\b', 'bills_utilities'),
+        (r'\bFASTAG\b', 'travel'),
+    ]
+    for pattern, category in merchant_keyword_rules:
+        if re.search(pattern, text_upper):
+            if 3 < matched_priority:
+                matched_priority = 3
+                matched_category = category
+                matched_merchant = extracted_merchant if extracted_merchant != 'Unknown' else None
+                matched_transaction_type = 'expense'
+            break
     
     # ============================================================
     # PRIORITY 1: EMI / LOAN (HIGHEST PRIORITY - INTENT FIRST)
@@ -776,7 +821,10 @@ def apply_global_rules(text: str, suggested_result: Dict, debit_amount: float, c
         re.search(r'\bPIZZA\s+HUT\b', text_upper) or
         re.search(r'\bSUBWAY\b', text_upper) or
         re.search(r'\bHALDIRAM\b', text_upper) or
-        re.search(r'\bHALDIRAMS\b', text_upper)):
+        re.search(r'\bHALDIRAMS\b', text_upper) or
+        re.search(r'\bSTARBUCKS\b', text_upper) or
+        re.search(r'\bCAFE\s+COFFEE\s+DAY\b', text_upper) or
+        re.search(r'\bCCD\b', text_upper)):
         if 9 < matched_priority:
             matched_priority = 9
             matched_category = 'food_dining'
@@ -792,7 +840,16 @@ def apply_global_rules(text: str, suggested_result: Dict, debit_amount: float, c
         re.search(r'\bBOOK\s+MY\s+SHOW\b', text_upper) or
         re.search(r'\bINOX\b', text_upper) or
         re.search(r'\bCINEMA\b', text_upper) or
-        re.search(r'\bMOVIE\b', text_upper)):
+        re.search(r'\bMOVIE\b', text_upper) or
+        re.search(r'\bNETFLIX\b', text_upper) or
+        re.search(r'\bHOTSTAR\b', text_upper) or
+        re.search(r'\bDISNEY\+?\s*HOTSTAR\b', text_upper) or
+        re.search(r'\bAMAZON\s+PRIME\b', text_upper) or
+        re.search(r'\bPRIME\s+VIDEO\b', text_upper) or
+        re.search(r'\bSONY\s*LIV\b', text_upper) or
+        re.search(r'\bSONYLIV\b', text_upper) or
+        re.search(r'\bZEE5\b', text_upper) or
+        re.search(r'\bSPOTIFY\b', text_upper)):
         if 10 < matched_priority:
             matched_priority = 10
             matched_category = 'entertainment'
@@ -804,6 +861,7 @@ def apply_global_rules(text: str, suggested_result: Dict, debit_amount: float, c
     if (re.search(r'\bAJIO\b', text_upper) or
         re.search(r'\bAMAZON\b', text_upper) or
         re.search(r'\bFLIPKART\b', text_upper) or
+        re.search(r'\bMEESHO\b', text_upper) or
         re.search(r'\bMYNTRA\b', text_upper) or
         re.search(r'\bDMART\b', text_upper) or
         re.search(r'\bD\'?MART\b', text_upper) or
