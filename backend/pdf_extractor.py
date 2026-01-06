@@ -580,7 +580,18 @@ def detect_bank(text: str) -> str:
     """
     text_upper = text.upper()
     
-    # Strategy 1: Check IFSC codes first (most reliable)
+    # 🔒 HARD GUARD RULES (MANDATORY) - USER REQUESTED PRIORITY
+    # These must execute BEFORE any other detection logic to prevent substring collisions
+    
+    # ✅ RULE 1 — UNION BANK (ABSOLUTE OVERRIDE)
+    if "UNION BANK" in text_upper or "UBIN" in text_upper:
+        return "Union Bank of India"
+        
+    # ✅ RULE 2 — CENTRAL BANK (ABSOLUTE OVERRIDE)
+    if "CENTRAL BANK" in text_upper or "CBIN" in text_upper:
+        return "Central Bank of India"
+
+    # Strategy 1: Check IFSC codes (most reliable for others)
     ifsc_match = re.search(r'IFSC[:\s]*(?:CODE)?[:\s]*([A-Z]{4}0[A-Z0-9]{6})', text_upper)
     if ifsc_match:
         ifsc_code = ifsc_match.group(1)
@@ -591,49 +602,27 @@ def detect_bank(text: str) -> str:
             'BKID': 'Bank of India',
             'UTIB': 'Axis Bank',
             'HDFC': 'HDFC Bank',
-            'CBIN': 'Central Bank of India',
-            'UBIN': 'Union Bank of India',
             'ICIC': 'ICICI Bank',
             'PUNB': 'Punjab National Bank',
             'CNRB': 'Canara Bank',
             'BARB': 'Bank of Baroda',
             'IOBA': 'Indian Overseas Bank',
         }
+        # Note: UBIN and CBIN are handled by hard guards above, but included here just in case text check failed (unlikely)
+        if ifsc_prefix == 'UBIN': return "Union Bank of India"
+        if ifsc_prefix == 'CBIN': return "Central Bank of India"
+        
         if ifsc_prefix in ifsc_bank_map:
             return ifsc_bank_map[ifsc_prefix]
+
+    # Strategy 2: Check explicit bank name patterns (Other Banks)
     
-    # Strategy 2: Check explicit bank name patterns (priority order matters)
-    # CRITICAL: Check Central Bank of India FIRST (before Bank of India) to avoid false matches
-    # This override MUST take precedence over any fuzzy or similarity-based detection
-    # Added explicit CBIN check as requested
-    if re.search(r'CENTRAL\s+BANK\s+OF\s+INDIA', text_upper) or \
-       re.search(r'CENTRAL\s+BANK', text_upper) or \
-       re.search(r'\bCBI\b', text_upper) or \
-       re.search(r'\bCBIN', text_upper) or \
-       ("CENTRAL BANK" in text_upper and re.search(r'CBIN', text_upper)):
-        return "Central Bank of India"
-    
-    # Check SBI first (before BOI) to avoid false matches
+    # Check SBI
     if "STATE BANK OF INDIA" in text_upper or \
-       (re.search(r'\bSBI\b', text_upper) and "BANK OF INDIA" not in text_upper and "STATE BANK" in text_upper):
+       (re.search(r'\bSBI\b', text_upper) and "STATE BANK" in text_upper):
         return "State Bank of India"
     
-    # Check Union Bank of India BEFORE BOI to avoid false match on "UNION BANK OF INDIA"
-    # Added explicit UBIN check as requested
-    if re.search(r'UNION\s+BANK\s+OF\s+INDIA', text_upper) or \
-       re.search(r'UNION\s+BANK', text_upper) or \
-       re.search(r'\bUBI\b', text_upper) or \
-       re.search(r'\bUBIN', text_upper) or \
-       ("UNION BANK" in text_upper and re.search(r'UBIN', text_upper)):
-        return "Union Bank of India"
-    
-    # Check BOI - ensure we do NOT match "UNION BANK OF INDIA"
-    # Must check for full "BANK OF INDIA" without "UNION" prefix or standalone "BOI"
-    if (re.search(r'(?<!UNION\s)BANK\s+OF\s+INDIA', text_upper) and "STATE BANK OF INDIA" not in text_upper and "CENTRAL BANK" not in text_upper) or \
-       (re.search(r'\bBOI\b', text_upper) and "AXIS" not in text_upper and "STATE" not in text_upper and "CENTRAL" not in text_upper and "UNION" not in text_upper):
-        return "Bank of India"
-    
-    # Check Axis Bank - must be explicit "AXIS BANK" (not just "AXIS")
+    # Check Axis Bank
     if "AXIS BANK" in text_upper or \
        (re.search(r'\bAXIS\b', text_upper) and re.search(r'UTIB', text_upper)):
         return "Axis Bank"
@@ -643,48 +632,45 @@ def detect_bank(text: str) -> str:
        (re.search(r'\bHDFC\b', text_upper) and "HDFC BANK" in text_upper):
         return "HDFC Bank"
     
-    # Central Bank of India already checked above (priority), skip here to avoid duplicate
-    
     # Check ICICI Bank
     if "ICICI BANK" in text_upper or \
        (re.search(r'\bICICI\b', text_upper) and re.search(r'ICIC', text_upper)):
         return "ICICI Bank"
-    
-    # Strategy 3: Check for bank-specific keywords in header/title area (first 2000 chars)
-    header_text = text_upper[:2000] if len(text_upper) > 2000 else text_upper
-    
-    # Additional bank patterns
-    if re.search(r'PUNJAB\s+NATIONAL\s+BANK', header_text) or re.search(r'\bPNB\b', header_text):
+        
+    # Check Punjab National Bank
+    if re.search(r'PUNJAB\s+NATIONAL\s+BANK', text_upper) or re.search(r'\bPNB\b', text_upper):
         return "Punjab National Bank"
-    if re.search(r'CANARA\s+BANK', header_text):
+        
+    # Check Canara Bank
+    if re.search(r'CANARA\s+BANK', text_upper):
         return "Canara Bank"
-    if re.search(r'BANK\s+OF\s+BARODA', header_text) or re.search(r'\bBOB\b', header_text):
+        
+    # Check Bank of Baroda
+    if re.search(r'BANK\s+OF\s+BARODA', text_upper) or re.search(r'\bBOB\b', text_upper):
         return "Bank of Baroda"
-    if re.search(r'INDIAN\s+OVERSEAS\s+BANK', header_text) or re.search(r'\bIOB\b', header_text):
+        
+    # Check Indian Overseas Bank
+    if re.search(r'INDIAN\s+OVERSEAS\s+BANK', text_upper) or re.search(r'\bIOB\b', text_upper):
         return "Indian Overseas Bank"
-    
+
+    # ❌ RULE 3 — BOI (LAST ONLY)
+    # Only if NO other rules matched
+    if "BANK OF INDIA" in text_upper or "BOI" in text_upper:
+        return "Bank of India"
+
     # Strategy 4: Check for any bank name pattern (fallback)
-    if "BANK" in header_text:
-        # Try to extract bank name from common patterns
-        boi_match = re.search(r'([A-Z][A-Z\s]+?)\s+BANK\s+OF\s+INDIA', header_text)
-        if boi_match:
-            prefix = boi_match.group(1).strip()
-            if re.fullmatch(r'CENTRAL', prefix):
-                return "Central Bank of India"
-            if re.fullmatch(r'UNION', prefix):
-                return "Union Bank of India"
-            return "Bank of India"
-        any_bank = re.search(r'([A-Z][A-Z\s]+?)\s+BANK', header_text)
-        if any_bank:
-            return f"{any_bank.group(1).title()} Bank"
-    
-    # Strategy 5: Last resort - check filename if available (but prefer PDF content)
-    # This should rarely be needed, but better than "Unknown"
-    # Note: We don't have filename here, so we'll use a generic fallback
+    # Check filename/header generic patterns
+    header_text = text_upper[:2000] if len(text_upper) > 2000 else text_upper
+    any_bank = re.search(r'([A-Z][A-Z\s]+?)\s+BANK', header_text)
+    if any_bank:
+        # Avoid returning generic "Bank Of India" if it was missed above (shouldn't happen)
+        found_name = f"{any_bank.group(1).title()} Bank"
+        if "Union" in found_name: return "Union Bank of India"
+        if "Central" in found_name: return "Central Bank of India"
+        return found_name
     
     # If still not found, return a generic name based on common patterns
-    # This is better than "Unknown" as it indicates we tried but couldn't determine
-    return "Bank (Unidentified)"  # Changed from "Unknown" to indicate we tried
+    return "Bank (Unidentified)"
 
 def extract_axis_account_info_improved(text: str, account_info: Dict, pdf):
     """Extract Axis Bank specific account info - IMPROVED"""

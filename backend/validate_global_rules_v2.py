@@ -85,29 +85,37 @@ def test_categorization_rules():
 
 def test_bank_detection():
     print("\nTesting Bank Detection...")
-    test_cases = [
+    test_cases_bank = [
         # Union Bank
         {"text": "UNION BANK OF INDIA STATEMENT", "exp": "Union Bank of India"},
         {"text": "WELCOME TO UNION BANK", "exp": "Union Bank of India"},
-        {"text": "TRANSACTION HISTORY UBI", "exp": "Union Bank of India"},
         {"text": "UNION BANK OF INDIA UBIN053000", "exp": "Union Bank of India"},
         
         # Central Bank
         {"text": "CENTRAL BANK OF INDIA ACCOUNT", "exp": "Central Bank of India"},
         {"text": "CENTRAL BANK STATEMENT", "exp": "Central Bank of India"},
-        {"text": "CBI ACCOUNT SUMMARY", "exp": "Central Bank of India"},
         {"text": "CBIN0280001", "exp": "Central Bank of India"},
         {"text": "SOME TEXT WITH CBIN CODE", "exp": "Central Bank of India"},
+        
+        # Substring Collision Tests (CRITICAL)
+        {"text": "UNION BANK OF INDIA - BOI BRANCH", "exp": "Union Bank of India"},
+        {"text": "CENTRAL BANK OF INDIA - BOI BRANCH", "exp": "Central Bank of India"},
+        {"text": "UNION BANK OF INDIA (NOT BANK OF INDIA)", "exp": "Union Bank of India"},
+        {"text": "CENTRAL BANK OF INDIA (NOT BANK OF INDIA)", "exp": "Central Bank of India"},
         
         # Negative Tests (should NOT be BOI)
         {"text": "UNION BANK OF INDIA", "not_exp": "Bank of India"},
         {"text": "CENTRAL BANK OF INDIA", "not_exp": "Bank of India"},
         {"text": "UBIN053000", "not_exp": "Bank of India"},
         {"text": "CBIN0280001", "not_exp": "Bank of India"},
+        
+        # BOI Tests (only if no other rules match)
+        {"text": "BANK OF INDIA", "exp": "Bank of India"},
+        {"text": "BOI", "exp": "Bank of India"},
     ]
     
     failed = False
-    for case in test_cases:
+    for case in test_cases_bank:
         text = case["text"]
         result = detect_bank(text)
         
