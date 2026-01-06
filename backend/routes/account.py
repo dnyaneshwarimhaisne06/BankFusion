@@ -99,33 +99,10 @@ def delete_account():
             db = MongoDB.get_db()
             statements_col = db['bank_statements']
             transactions_col = db['bank_transactions']
-            
-            # Try to find statements by userId (if field exists)
-            # Also try alternative field names
-            statements = []
-            for field_name in ['userId', 'user_id', 'user']:
-                found = list(statements_col.find({field_name: user_id}))
-                if found:
-                    statements = found
-                    break
-            
-            if statements:
-                statement_ids = [str(stmt['_id']) for stmt in statements]
-                
-                # Delete all transactions for these statements
-                if statement_ids:
-                    transactions_col.delete_many({'statementId': {'$in': statement_ids}})
-                    logger.info(f"Deleted transactions for user {user_id}")
-                
-                # Delete all statements
-                for field_name in ['userId', 'user_id', 'user']:
-                    result = statements_col.delete_many({field_name: user_id})
-                    if result.deleted_count > 0:
-                        logger.info(f"Deleted {result.deleted_count} statements for user {user_id}")
-                        break
-            else:
-                logger.info(f"No MongoDB statements found for user {user_id} (may not be using userId field)")
-            
+            # Hard delete by userId for both collections
+            tx_result = transactions_col.delete_many({'userId': user_id})
+            st_result = statements_col.delete_many({'userId': user_id})
+            logger.info(f"Deleted {tx_result.deleted_count} transactions and {st_result.deleted_count} statements for user {user_id}")
         except Exception as db_error:
             logger.error(f"Error deleting MongoDB data: {str(db_error)}")
             # Continue to delete Supabase user even if MongoDB deletion fails

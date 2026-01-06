@@ -95,15 +95,33 @@ export default function Transactions() {
         throw new Error(result.error || 'Failed to fetch transactions');
       }
 
-      const transformed = (result.data || []).map(t => ({
-        id: t._id,
-        date: t.date,
-        description: t.description,
-        debit: t.debit,
-        credit: t.credit,
-        balance: t.balance,
-        category: t.category,
-      }));
+      const transformed = (result.data || []).map(t => {
+        const amount = t.amount !== undefined && t.amount !== null ? Number(t.amount) : null;
+        const direction = typeof t.direction === 'string' ? t.direction.toLowerCase() : '';
+        
+        let debit: number | null = t.debit !== undefined && t.debit !== null ? Number(t.debit) : null;
+        let credit: number | null = t.credit !== undefined && t.credit !== null ? Number(t.credit) : null;
+        
+        if ((debit === null && credit === null) && amount !== null && direction) {
+          if (direction === 'debit') {
+            debit = amount;
+            credit = null;
+          } else if (direction === 'credit') {
+            debit = null;
+            credit = amount;
+          }
+        }
+        
+        return {
+          id: t._id,
+          date: t.date,
+          description: t.description,
+          debit,
+          credit,
+          balance: t.balance,
+          category: t.category,
+        };
+      });
       
       setTransactions(transformed);
     } catch (err: any) {
