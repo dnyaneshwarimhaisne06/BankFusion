@@ -605,9 +605,11 @@ def detect_bank(text: str) -> str:
     # Strategy 2: Check explicit bank name patterns (priority order matters)
     # CRITICAL: Check Central Bank of India FIRST (before Bank of India) to avoid false matches
     # This override MUST take precedence over any fuzzy or similarity-based detection
+    # Added explicit CBIN check as requested
     if re.search(r'CENTRAL\s+BANK\s+OF\s+INDIA', text_upper) or \
        re.search(r'CENTRAL\s+BANK', text_upper) or \
        re.search(r'\bCBI\b', text_upper) or \
+       re.search(r'\bCBIN', text_upper) or \
        ("CENTRAL BANK" in text_upper and re.search(r'CBIN', text_upper)):
         return "Central Bank of India"
     
@@ -617,9 +619,11 @@ def detect_bank(text: str) -> str:
         return "State Bank of India"
     
     # Check Union Bank of India BEFORE BOI to avoid false match on "UNION BANK OF INDIA"
+    # Added explicit UBIN check as requested
     if re.search(r'UNION\s+BANK\s+OF\s+INDIA', text_upper) or \
        re.search(r'UNION\s+BANK', text_upper) or \
        re.search(r'\bUBI\b', text_upper) or \
+       re.search(r'\bUBIN', text_upper) or \
        ("UNION BANK" in text_upper and re.search(r'UBIN', text_upper)):
         return "Union Bank of India"
     

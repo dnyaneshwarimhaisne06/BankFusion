@@ -456,6 +456,12 @@ def apply_global_rules(text: str, suggested_result: Dict, debit_amount: float, c
         (r'SERVICE\s+CHARGES', 'bank_charges'),
         (r'ANNUAL\s+CHARGES', 'bank_charges'),
         (r'DEBIT\s+CARD\s+CHARGES', 'bank_charges'),
+        
+        # New Strict Overrides (Priority 0)
+        (r'LOCAL\s+KIRANA', 'groceries'),
+        (r'BOOK\s+STORE', 'education'),
+        (r'SALON', 'healthcare'),  # Mapped to healthcare as personal_care does not exist
+        (r'YOUTUBE\s+PREMIUM', 'entertainment'),
     ]
     for pattern, category in merchant_keyword_rules:
         if re.search(pattern, text_upper):

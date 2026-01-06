@@ -49,6 +49,16 @@ def test_categorization_rules():
         # Bank Charges
         {"desc": "SMS CHARGES FOR Q3", "exp": "bank_charges"},
         {"desc": "ANNUAL CHARGES DEBIT CARD", "exp": "bank_charges"},
+        
+        # New Rules (Kirana, Book Store, Salon, YouTube)
+        {"desc": "PAYMENT TO LOCAL KIRANA STORE", "exp": "groceries"},
+        {"desc": "PURCHASE AT LOCAL KIRANA", "exp": "groceries"},
+        {"desc": "CITY BOOK STORE", "exp": "education"},
+        {"desc": "BOOK STORE PAYMENT", "exp": "education"},
+        {"desc": "LOOKS SALON", "exp": "healthcare"},
+        {"desc": "SALON SERVICES", "exp": "healthcare"},
+        {"desc": "YOUTUBE PREMIUM SUBSCRIPTION", "exp": "entertainment"},
+        {"desc": "YOUTUBE PREMIUM", "exp": "entertainment"},
     ]
     
     failed = False
@@ -86,10 +96,14 @@ def test_bank_detection():
         {"text": "CENTRAL BANK OF INDIA ACCOUNT", "exp": "Central Bank of India"},
         {"text": "CENTRAL BANK STATEMENT", "exp": "Central Bank of India"},
         {"text": "CBI ACCOUNT SUMMARY", "exp": "Central Bank of India"},
+        {"text": "CBIN0280001", "exp": "Central Bank of India"},
+        {"text": "SOME TEXT WITH CBIN CODE", "exp": "Central Bank of India"},
         
         # Negative Tests (should NOT be BOI)
         {"text": "UNION BANK OF INDIA", "not_exp": "Bank of India"},
         {"text": "CENTRAL BANK OF INDIA", "not_exp": "Bank of India"},
+        {"text": "UBIN053000", "not_exp": "Bank of India"},
+        {"text": "CBIN0280001", "not_exp": "Bank of India"},
     ]
     
     failed = False
