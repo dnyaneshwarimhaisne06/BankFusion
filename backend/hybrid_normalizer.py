@@ -412,6 +412,50 @@ def apply_global_rules(text: str, suggested_result: Dict, debit_amount: float, c
         (r'FASTAG', 'travel'),
         (r'RAILWAY', 'travel'),
         (r'RAIL\s+TICKET', 'travel'),
+        (r'\bIRCTC\b', 'travel'),
+        
+        # Groceries
+        (r'\bMORE\b', 'groceries'),
+        (r'MORE\s+STORE', 'groceries'),
+        (r'MORE\s+SUPERMARKET', 'groceries'),
+        
+        # Utilities (Jio)
+        (r'RELIANCE\s+JIO', 'bills_utilities'),
+        (r'\bJIO\b', 'bills_utilities'),
+        
+        # Healthcare
+        (r'\bHOSP\b', 'healthcare'),
+        (r'\bHOSPITAL\b', 'healthcare'),
+        (r'\bMED\b', 'healthcare'),
+        (r'\bPHARM\b', 'healthcare'),
+        (r'\bPHARMA\b', 'healthcare'),
+        (r'\b1MG\b', 'healthcare'),
+        (r'\bMEDPLUS\b', 'healthcare'),
+        (r'\bAPOLLO\b', 'healthcare'),
+        (r'\bFORTIS\b', 'healthcare'),
+        (r'MAX\s+HEALTH', 'healthcare'),
+        (r'\bMANIPAL\b', 'healthcare'),
+        
+        # Education
+        (r'\bSCHOOL\b', 'education'),
+        (r'\bSCH\b', 'education'),
+        (r'\bTUITION\b', 'education'),
+        (r'\bEDUCATION\b', 'education'),
+        (r'\bADMIS\b', 'education'),
+        (r'\bADMISSION\b', 'education'),
+        
+        # Utilities (Electricity/ISP)
+        (r'\bTPDDL\b', 'bills_utilities'),
+        (r'\bBESCOM\b', 'bills_utilities'),
+        (r'\bCESC\b', 'bills_utilities'),
+        (r'\bMSEDCL\b', 'bills_utilities'),
+        (r'\bHATHWAY\b', 'bills_utilities'),
+        
+        # Bank Charges
+        (r'SMS\s*CHARGES', 'bank_charges'),
+        (r'SERVICE\s+CHARGES', 'bank_charges'),
+        (r'ANNUAL\s+CHARGES', 'bank_charges'),
+        (r'DEBIT\s+CARD\s+CHARGES', 'bank_charges'),
     ]
     for pattern, category in merchant_keyword_rules:
         if re.search(pattern, text_upper):
