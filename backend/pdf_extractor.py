@@ -614,10 +614,15 @@ def detect_bank(text: str) -> str:
        (re.search(r'\bSBI\b', text_upper) and "BANK OF INDIA" not in text_upper and "STATE BANK" in text_upper):
         return "State Bank of India"
     
-    # Check BOI BEFORE Axis Bank - must check for full "BANK OF INDIA" or standalone "BOI"
-    # BUT only if Central Bank was not detected
-    if ("BANK OF INDIA" in text_upper and "STATE BANK OF INDIA" not in text_upper and "CENTRAL BANK" not in text_upper) or \
-       (re.search(r'\bBOI\b', text_upper) and "AXIS" not in text_upper and "STATE" not in text_upper and "CENTRAL" not in text_upper):
+    # Check Union Bank of India BEFORE BOI to avoid false match on "UNION BANK OF INDIA"
+    if re.search(r'UNION\s+BANK\s+OF\s+INDIA', text_upper) or \
+       ("UNION BANK" in text_upper and re.search(r'UBIN', text_upper)):
+        return "Union Bank of India"
+    
+    # Check BOI - ensure we do NOT match "UNION BANK OF INDIA"
+    # Must check for full "BANK OF INDIA" without "UNION" prefix or standalone "BOI"
+    if (re.search(r'(?<!UNION\s)BANK\s+OF\s+INDIA', text_upper) and "STATE BANK OF INDIA" not in text_upper and "CENTRAL BANK" not in text_upper) or \
+       (re.search(r'\bBOI\b', text_upper) and "AXIS" not in text_upper and "STATE" not in text_upper and "CENTRAL" not in text_upper and "UNION" not in text_upper):
         return "Bank of India"
     
     # Check Axis Bank - must be explicit "AXIS BANK" (not just "AXIS")
@@ -631,11 +636,6 @@ def detect_bank(text: str) -> str:
         return "HDFC Bank"
     
     # Central Bank of India already checked above (priority), skip here to avoid duplicate
-    
-    # Check Union Bank of India
-    if re.search(r'UNION\s+BANK\s+OF\s+INDIA', text_upper) or \
-       ("UNION BANK" in text_upper and re.search(r'UBIN', text_upper)):
-        return "Union Bank of India"
     
     # Check ICICI Bank
     if "ICICI BANK" in text_upper or \
@@ -1616,7 +1616,14 @@ def extract_central_bank_state_machine(pdf) -> List[Dict]:
                 continue
             
             # IGNORE lines containing generic patterns (Line B and similar)
-            if any(ignore in line_upper for ignore in [
+            # BUT: Do NOT skip if the line also contains a valid description pattern
+            contains_valid_desc = (
+                re.search(r'\bTRF\s+TO\b', line_upper) or
+                re.search(r'\bTRF\s+FROM\b', line_upper) or
+                re.search(r'\bSALARY\s+CREDIT\b', line_upper) or
+                re.search(r'\bREFUND\b', line_upper)
+            )
+            if not contains_valid_desc and any(ignore in line_upper for ignore in [
                 "TO TRF.", "BY TRF.", "UPI RRN", 
                 "CARRIED FORWARD", "BROUGHT FORWARD"
             ]):
@@ -1625,14 +1632,19 @@ def extract_central_bank_state_machine(pdf) -> List[Dict]:
             # Extract description ONLY from Line C patterns
             # Description MUST come from a line that STARTS with these patterns
             if current_transaction is not None and not current_transaction.get("description"):
-                if line_upper.startswith("TRF TO"):
-                    current_transaction["description"] = line.strip()
-                elif line_upper.startswith("TRF FROM"):
-                    current_transaction["description"] = line.strip()
-                elif line_upper.startswith("SALARY CREDIT"):
+                trf_to_match = re.search(r'\bTRF\s+TO\b', line_upper)
+                trf_from_match = re.search(r'\bTRF\s+FROM\b', line_upper)
+                salary_match = re.search(r'\bSALARY\s+CREDIT\b', line_upper)
+                refund_match = re.search(r'\bREFUND\b', line_upper)
+                
+                if trf_to_match:
+                    current_transaction["description"] = line[trf_to_match.start():].strip()
+                elif trf_from_match:
+                    current_transaction["description"] = line[trf_from_match.start():].strip()
+                elif salary_match:
                     current_transaction["description"] = "SALARY CREDIT"
-                elif line_upper.startswith("REFUND"):
-                    current_transaction["description"] = line.strip()
+                elif refund_match:
+                    current_transaction["description"] = line[refund_match.start():].strip()
                 # First match wins - description is set ONCE per transaction
     
     # Finalize last transaction
