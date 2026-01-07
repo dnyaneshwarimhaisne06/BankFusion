@@ -4,6 +4,7 @@ import tempfile
 import logging
 import base64
 import json
+import re
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.application import MIMEApplication
@@ -62,15 +63,33 @@ class EmailListenerService:
             if not (GMAIL_CLIENT_ID and GMAIL_CLIENT_SECRET and GMAIL_REFRESH_TOKEN):
                 return None
             
-            # Sanitize Client ID (remove http/https and trailing slash)
-            clean_client_id = GMAIL_CLIENT_ID.replace('http://', '').replace('https://', '').rstrip('/')
+            # Aggressive Sanitization
+            # 1. Client ID: Remove quotes, whitespace, protocol prefixes, trailing slashes
+            #    Then try to extract the specific pattern [0-9]+-[a-z0-9]+.apps.googleusercontent.com
+            clean_client_id = GMAIL_CLIENT_ID.strip().strip("'").strip('"')
+            clean_client_id = clean_client_id.replace('http://', '').replace('https://', '').rstrip('/')
+            
+            # Regex extraction for extra safety (if garbage is attached)
+            match = re.search(r'(\d+-[a-z0-9]+\.apps\.googleusercontent\.com)', clean_client_id)
+            if match:
+                clean_client_id = match.group(1)
+            
+            # 2. Secret: Remove quotes and whitespace
+            clean_secret = GMAIL_CLIENT_SECRET.strip().strip("'").strip('"')
+            
+            # 3. Refresh Token: Remove quotes and whitespace
+            clean_refresh = GMAIL_REFRESH_TOKEN.strip().strip("'").strip('"')
+            
+            # Log masked credentials for verification
+            masked_id = clean_client_id[:10] + "..." + clean_client_id[-10:] if len(clean_client_id) > 20 else "INVALID"
+            logger.info(f"Using sanitized Gmail Client ID: {masked_id}")
             
             creds = Credentials(
                 token=None,
-                refresh_token=GMAIL_REFRESH_TOKEN,
+                refresh_token=clean_refresh,
                 token_uri=token_uri,
                 client_id=clean_client_id,
-                client_secret=GMAIL_CLIENT_SECRET,
+                client_secret=clean_secret,
                 scopes=scopes,
             )
             service = build('gmail', 'v1', credentials=creds, cache_discovery=False)
