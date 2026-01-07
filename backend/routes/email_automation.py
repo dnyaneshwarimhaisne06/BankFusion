@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 @email_bp.route('/consent', methods=['POST'])
 def save_consent():
     """Save or update user email consent"""
-    user_id = get_user_id_from_request()
+    user_id = get_user_id_from_request(request)
     if not user_id:
         return jsonify({'error': 'Unauthorized'}), 401
     
@@ -41,7 +41,7 @@ def save_consent():
 @email_bp.route('/status', methods=['GET'])
 def get_status():
     """Get current consent status"""
-    user_id = get_user_id_from_request()
+    user_id = get_user_id_from_request(request)
     if not user_id:
         return jsonify({'error': 'Unauthorized'}), 401
         
@@ -57,7 +57,7 @@ def get_status():
 @email_bp.route('/consent', methods=['DELETE'])
 def revoke_consent():
     """Revoke consent"""
-    user_id = get_user_id_from_request()
+    user_id = get_user_id_from_request(request)
     if not user_id:
         return jsonify({'error': 'Unauthorized'}), 401
         
@@ -72,7 +72,7 @@ def revoke_consent():
 @email_bp.route('/simulate', methods=['POST'])
 def simulate_email():
     """Simulate an incoming email (Dev/Test only)"""
-    user_id = get_user_id_from_request()
+    user_id = get_user_id_from_request(request)
     if not user_id:
         return jsonify({'error': 'Unauthorized'}), 401
         
