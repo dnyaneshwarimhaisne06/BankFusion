@@ -27,6 +27,7 @@ import { User, Mail, Calendar, Shield, Loader2 } from 'lucide-react';
 import { safeFormatDate } from '@/lib/utils';
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
+import { EmailAutomationSettings } from '@/components/settings/EmailAutomationSettings';
 
 export default function Settings() {
   const { user, updatePassword, deleteAccount } = useAuth();
