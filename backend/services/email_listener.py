@@ -354,46 +354,23 @@ class EmailListenerService:
 
     @staticmethod
     def _send_email(to_email, subject, body, attachment_path=None):
-        """Send email with optional attachment via MSG91 (outbound only)"""
-        if not MSG91_API_KEY or not MSG91_SENDER_EMAIL:
-            logger.warning("MSG91 not configured. Attempting Gmail send fallback.")
-            EmailListenerService._send_email_via_gmail(to_email, subject, body, attachment_path)
-            if EMAIL_USER and EMAIL_PASS:
-                # If Gmail API not available, SMTP can still work
-                EmailListenerService._send_email_via_smtp(to_email, subject, body, attachment_path)
-            return
-
-        payload = {
-            "to": [{"email": to_email}],
-            "from": {"email": MSG91_SENDER_EMAIL},
-            "subject": subject,
-            "content": [{"type": "text/plain", "value": body}],
-        }
-
-        if attachment_path and os.path.exists(attachment_path):
-            try:
-                with open(attachment_path, "rb") as f:
-                    b64 = base64.b64encode(f.read()).decode("utf-8")
-                payload["attachments"] = [{
-                    "name": os.path.basename(attachment_path),
-                    "content": b64
-                }]
-            except Exception as e:
-                logger.error(f"Attachment encoding failed: {str(e)}")
-
-        headers = {
-            "Authorization": f"Bearer {MSG91_API_KEY}",
-            "Content-Type": "application/json"
-        }
-
+        """Send email using the configured provider (SendGrid/MSG91) with fallback"""
+        from services.email_providers import get_email_provider
+        
         try:
-            resp = requests.post(MSG91_EMAIL_ENDPOINT, headers=headers, data=json.dumps(payload), timeout=10)
-            if resp.status_code >= 200 and resp.status_code < 300:
-                logger.info(f"MSG91: Email sent to {to_email}")
-            else:
-                logger.error(f"MSG91 send failed: {resp.status_code} {resp.text}")
+            provider = get_email_provider()
+            if provider.send_email(to_email, subject, body, attachment_path):
+                return
+            
+            logger.warning("Primary email provider failed. Attempting Gmail send fallback.")
         except Exception as e:
-            logger.error(f"MSG91 request error: {str(e)}")
+            logger.error(f"Error using email provider: {str(e)}")
+            logger.warning("Attempting Gmail send fallback.")
+            
+        EmailListenerService._send_email_via_gmail(to_email, subject, body, attachment_path)
+        if EMAIL_USER and EMAIL_PASS:
+            # If Gmail API not available, SMTP can still work
+            EmailListenerService._send_email_via_smtp(to_email, subject, body, attachment_path)
 
     @staticmethod
     def _send_email_via_gmail(to_email, subject, body, attachment_path=None):
