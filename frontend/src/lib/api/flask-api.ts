@@ -88,21 +88,25 @@ export interface AnalyticsSummary {
   averageTransaction?: number;
 }
 
-class FlaskApiClient {
+export interface EmailConsent {
+  isActive: boolean;
+  email?: string;
+}
+
+class FlaskAPI {
   private baseUrl: string | undefined;
 
-  constructor(baseUrl: string | undefined) {
-    this.baseUrl = baseUrl;
-    if (!baseUrl) {
+  constructor(baseUrl?: string) {
+    this.baseUrl = baseUrl ?? API_BASE_URL;
+    if (!this.baseUrl) {
       console.error('[Flask API] API_BASE_URL is undefined. Set VITE_FLASK_API_URL in environment variables.');
     }
   }
 
   private async request<T>(
-    endpoint: string,
+    url: string,
     options: RequestInit = {}
   ): Promise<ApiResponse<T>> {
-    // Validate baseUrl is configured
     if (!this.baseUrl) {
       return {
         success: false,
@@ -126,10 +130,10 @@ class FlaskApiClient {
         headers['Authorization'] = `Bearer ${token}`;
       }
       
-      const url = `${this.baseUrl}${endpoint}`;
-      console.log(`[Flask API] ${options.method || 'GET'} ${url}`);
+      const fullUrl = `${this.baseUrl}${url}`;
+      console.log(`[Flask API] ${options.method || 'GET'} ${fullUrl}`);
 
-      const response = await fetch(url, {
+      const response = await fetch(fullUrl, {
         ...options,
         headers,
       });
@@ -146,8 +150,8 @@ class FlaskApiClient {
       return data;
     } catch (error: any) {
       console.error('[Flask API] Request failed:', error);
-      console.error('[Flask API] Endpoint:', endpoint);
-      console.error('[Flask API] Full URL:', `${this.baseUrl}${endpoint}`);
+      console.error('[Flask API] Endpoint:', url);
+      console.error('[Flask API] Full URL:', `${this.baseUrl}${url}`);
       
       // Provide more specific error messages
       let errorMessage = 'Network error. Cannot connect to backend server.';
@@ -443,6 +447,23 @@ class FlaskApiClient {
     return this.request<any>(`/analytics/ai-summary/${statementId}`);
   }
 
+  async getEmailConsentStatus(): Promise<ApiResponse<EmailConsent>> {
+    return this.request<EmailConsent>('/email-automation/status');
+  }
+
+  async saveEmailConsent(email: string): Promise<ApiResponse<any>> {
+    return this.request<any>('/email-automation/consent', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    });
+  }
+
+  async revokeEmailConsent(): Promise<ApiResponse<any>> {
+    return this.request<any>('/email-automation/consent', {
+      method: 'DELETE',
+    });
+  }
+
   // ==================== HEALTH CHECK ====================
 
   async healthCheck(): Promise<boolean> {
@@ -455,27 +476,7 @@ class FlaskApiClient {
   }
 }
 
-// Export singleton instance// ==================== EMAIL AUTOMATION ====================
-
-  async getEmailConsentStatus(): Promise<ApiResponse<EmailConsent>> {
-    return this.request('/email-automation/status');
-  }
-
-  async saveEmailConsent(email: string): Promise<ApiResponse<any>> {
-    return this.request('/email-automation/consent', {
-      method: 'POST',
-      body: JSON.stringify({ email }),
-    });
-  }
-
-  async revokeEmailConsent(): Promise<ApiResponse<any>> {
-    return this.request('/email-automation/consent', {
-      method: 'DELETE',
-    });
-  }
-}
-
-export const flaskApi = new FlaskApiClient(API_BASE_URL);
+export const flaskApi = new FlaskAPI();
 
 // Export utility to check if Flask is configured
 export const isFlaskConfigured = () => {
