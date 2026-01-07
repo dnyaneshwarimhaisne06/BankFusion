@@ -28,7 +28,8 @@ logger = logging.getLogger(__name__)
 EMAIL_USER = os.getenv('EMAIL_HOST_USER')
 EMAIL_PASS = os.getenv('EMAIL_HOST_PASSWORD')
 GMAIL_CREDENTIALS = os.getenv('GMAIL_API_CREDENTIALS')
-GMAIL_SCOPES = os.getenv('GMAIL_API_SCOPES', 'https://www.googleapis.com/auth/gmail.readonly,https://www.googleapis.com/auth/gmail.send')
+# Note: If changing scopes, delete token.json to force re-authentication
+GMAIL_SCOPES = os.getenv('GMAIL_API_SCOPES', 'https://www.googleapis.com/auth/gmail.readonly,https://www.googleapis.com/auth/gmail.send,https://www.googleapis.com/auth/gmail.modify')
 GMAIL_CLIENT_ID = os.getenv('GMAIL_CLIENT_ID')
 GMAIL_CLIENT_SECRET = os.getenv('GMAIL_CLIENT_SECRET')
 GMAIL_REFRESH_TOKEN = os.getenv('GMAIL_REFRESH_TOKEN')
@@ -171,9 +172,9 @@ class EmailListenerService:
                 processed_ids = set(current_consent.get('processedMessageIds', []))
 
                 for m in msgs:
-                    # if m['id'] in processed_ids:
-                    #     logger.info(f"Skipping message {m['id']} (already processed)")
-                    #     continue
+                    if m['id'] in processed_ids:
+                        logger.info(f"Skipping message {m['id']} (already processed)")
+                        continue
 
                     stats['emails_processed'] += 1
                     try:
@@ -322,9 +323,24 @@ class EmailListenerService:
                     logger.error(f"Error processing PDF {filename}: {str(e)}")
 
     @staticmethod
-    def _generate_and_send_report(process_result, original_pdf_path, user_consent):
-        """Generate financial report and send back to user"""
+    def generate_and_send_report(process_result, original_pdf_path, user_consent):
+        """
+        Generate financial report and send back to user.
+        user_consent can be a dict (from DB) or a string (email address).
+        """
         db = MongoDB.get_db()
+        
+        # Determine email address
+        if isinstance(user_consent, str):
+            to_email = user_consent
+        else:
+            to_email = user_consent.get('email')
+            
+        if not to_email:
+            logger.error("Cannot send report: No email address provided")
+            return
+            
+        logger.info(f"Generating report for {to_email}")
         
         # Fetch data for summary
         statement_id = ObjectId(process_result['statementId'])
