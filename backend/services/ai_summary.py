@@ -82,8 +82,8 @@ def generate_expense_summary(statement_data: Dict, transactions: List[Dict]) -> 
 **Top Spending Categories:**
 {chr(10).join([f"- {cat}: ₹{amt:,.2f}" for cat, amt in top_categories])}
 
-**Transaction Sample (first 10):**
-{chr(10).join([f"- {t.get('date', 'N/A')}: {t.get('description', 'N/A')[:50]} - ₹{t.get('debit', 0) or 0:,.2f} ({t.get('category', 'Uncategorized')})" for t in transactions[:10]])}
+**Transaction Sample (first 5):**
+{chr(10).join([f"- {t.get('date', 'N/A')}: {t.get('description', 'N/A')[:50]} - ₹{t.get('debit', 0) or 0:,.2f} ({t.get('category', 'Uncategorized')})" for t in transactions[:5]])}
 
 Please create a comprehensive expense summary report that includes:
 
@@ -124,7 +124,7 @@ Return the report as a JSON object with the following structure:
                 }
             ],
             temperature=0.7,
-            max_tokens=2000
+            max_tokens=800
         )
         
         # Parse response

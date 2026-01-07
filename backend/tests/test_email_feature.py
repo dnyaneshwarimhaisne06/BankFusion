@@ -31,6 +31,7 @@ sys.modules['dotenv'] = MagicMock()
 sys.modules['flask'] = MagicMock()
 sys.modules['werkzeug'] = MagicMock()
 sys.modules['werkzeug.utils'] = MagicMock()
+sys.modules['requests'] = MagicMock()
 
 from services.email_listener import EmailListenerService
 

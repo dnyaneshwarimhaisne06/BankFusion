@@ -126,7 +126,7 @@ class EmailListenerService:
                             if data:
                                 content_bytes = base64.urlsafe_b64decode(data.encode('utf-8'))
                             elif attachment_id:
-                                att = service.users().messages().attachments().get(userId=user_email, messageId=m['id'], id=attachment_id).execute()
+                                att = service.users().messages().attachments().get(userId='me', messageId=m['id'], id=attachment_id).execute()
                                 att_data = att.get('data')
                                 if att_data:
                                     content_bytes = base64.urlsafe_b64decode(att_data.encode('utf-8'))
