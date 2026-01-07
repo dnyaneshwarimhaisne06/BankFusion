@@ -153,6 +153,7 @@ class EmailListenerService:
                 logger.info(f"Checking Gmail with query: {query}")
                 messages_list = service.users().messages().list(userId='me', q=query, includeSpamTrash=False).execute()
                 msgs = messages_list.get('messages', [])
+                logger.info(f"Query returned {len(msgs)} messages.")
                 stats['emails_found'] += len(msgs)
                 
                 if not msgs:
@@ -163,8 +164,9 @@ class EmailListenerService:
                 processed_ids = set(current_consent.get('processedMessageIds', []))
 
                 for m in msgs:
-                    if m['id'] in processed_ids:
-                        continue
+                    # if m['id'] in processed_ids:
+                    #     logger.info(f"Skipping message {m['id']} (already processed)")
+                    #     continue
 
                     stats['emails_processed'] += 1
                     try:
