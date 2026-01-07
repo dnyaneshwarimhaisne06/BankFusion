@@ -15,6 +15,7 @@ from routes.transactions import transactions_bp
 from routes.analytics import analytics_bp
 from routes.upload import upload_bp
 from routes.account import account_bp
+from routes.email_automation import email_bp
 from utils.serializers import create_response
 
 # ---------------------------------------------------
@@ -52,6 +53,7 @@ app.register_blueprint(transactions_bp, url_prefix="/api")
 app.register_blueprint(analytics_bp, url_prefix="/api")
 app.register_blueprint(upload_bp, url_prefix="/api")
 app.register_blueprint(account_bp, url_prefix="/api")
+app.register_blueprint(email_bp, url_prefix="/api/email-automation")
 
 # ---------------------------------------------------
 # Health

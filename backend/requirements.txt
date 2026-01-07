@@ -1,4 +1,4 @@
-﻿# BankFusion Flask API Dependencies
+# BankFusion Flask API Dependencies
 # Stable versions - tested and working
 #
 # IMPORTANT: Always activate virtual environment before installing!
@@ -29,3 +29,6 @@ openai>=1.0.0
 gunicorn
 requests
 python-dotenv==1.2.1
+google-api-python-client
+google-auth
+google-auth-oauthlib

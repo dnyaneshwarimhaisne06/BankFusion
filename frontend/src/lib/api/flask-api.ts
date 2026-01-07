@@ -455,7 +455,26 @@ class FlaskApiClient {
   }
 }
 
-// Export singleton instance
+// Export singleton instance// ==================== EMAIL AUTOMATION ====================
+
+  async getEmailConsentStatus(): Promise<ApiResponse<EmailConsent>> {
+    return this.request('/email-automation/status');
+  }
+
+  async saveEmailConsent(email: string): Promise<ApiResponse<any>> {
+    return this.request('/email-automation/consent', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    });
+  }
+
+  async revokeEmailConsent(): Promise<ApiResponse<any>> {
+    return this.request('/email-automation/consent', {
+      method: 'DELETE',
+    });
+  }
+}
+
 export const flaskApi = new FlaskApiClient(API_BASE_URL);
 
 // Export utility to check if Flask is configured

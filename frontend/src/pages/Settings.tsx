@@ -87,6 +87,9 @@ export default function Settings() {
           </div>
         </Card>
 
+        {/* Email Automation Section */}
+        <EmailAutomationSettings />
+
         {/* Security section */}
         <Card className="p-6">
           <div className="flex items-center gap-3 mb-6">
