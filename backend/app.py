@@ -128,7 +128,7 @@ if __name__ == "__main__":
 
     def _email_poll_loop():
         from services.email_listener import EmailListenerService
-        interval = int(os.getenv("EMAIL_POLL_INTERVAL_SECONDS", "45"))
+        interval = int(os.getenv("EMAIL_POLL_INTERVAL_SECONDS", "15"))
         while True:
             try:
                 EmailListenerService.process_inbox()

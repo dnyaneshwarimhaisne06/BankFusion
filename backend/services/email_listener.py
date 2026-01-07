@@ -11,6 +11,8 @@ from datetime import datetime
 from typing import List, Dict, Any, Optional
 from bson import ObjectId
 import requests
+import smtplib
+from email.message import EmailMessage
 
 from db.mongo import MongoDB
 from db.email_schema import EMAIL_CONSENT_COLLECTION
@@ -33,6 +35,7 @@ GMAIL_REFRESH_TOKEN = os.getenv('GMAIL_REFRESH_TOKEN')
 MSG91_API_KEY = os.getenv('MSG91_API_KEY')
 MSG91_SENDER_EMAIL = os.getenv('MSG91_SENDER_EMAIL', EMAIL_USER or '')
 MSG91_EMAIL_ENDPOINT = os.getenv('MSG91_EMAIL_ENDPOINT', 'https://api.msg91.com/api/v5/email/send')
+EMAIL_REQUIRE_SUBJECT_KEYWORDS = os.getenv('EMAIL_REQUIRE_SUBJECT_KEYWORDS', 'false').lower() == 'true'
 
 class EmailListenerService:
     """
@@ -111,38 +114,44 @@ class EmailListenerService:
                         subject = hdr.get('subject', '') or ''
                         sender = hdr.get('from', '') or ''
                         keywords = ['statement', 'account summary', 'monthly statement']
-                        if not any(k in subject.lower() for k in keywords):
-                            continue
+                        if EMAIL_REQUIRE_SUBJECT_KEYWORDS:
+                            if not any(k in subject.lower() for k in keywords):
+                                continue
                         allowed = consent.get('allowedSenders', [])
                         if allowed:
                             if not any(a.lower() in sender.lower() for a in allowed):
                                 continue
-                        parts = msg.get('payload', {}).get('parts', [])
-                        for part in parts:
-                            filename = part.get('filename') or ''
-                            if not filename.lower().endswith('.pdf'):
-                                continue
-                            body = part.get('body', {}) or {}
-                            data = body.get('data')
-                            attachment_id = body.get('attachmentId')
-                            content_bytes = None
-                            if data:
-                                content_bytes = base64.urlsafe_b64decode(data.encode('utf-8'))
-                            elif attachment_id:
-                                att = service.users().messages().attachments().get(userId='me', messageId=m['id'], id=attachment_id).execute()
-                                att_data = att.get('data')
-                                if att_data:
-                                    content_bytes = base64.urlsafe_b64decode(att_data.encode('utf-8'))
-                            if not content_bytes:
-                                continue
+                        def _yield_pdfs(payload):
+                            stack = [payload]
+                            while stack:
+                                p = stack.pop()
+                                fn = (p.get('filename') or '').lower()
+                                body = p.get('body') or {}
+                                if fn.endswith('.pdf'):
+                                    data = body.get('data')
+                                    aid = body.get('attachmentId')
+                                    buf = None
+                                    if data:
+                                        buf = base64.urlsafe_b64decode(data.encode('utf-8'))
+                                    elif aid:
+                                        att = service.users().messages().attachments().get(userId='me', messageId=m['id'], id=aid).execute()
+                                        d = att.get('data')
+                                        if d:
+                                            buf = base64.urlsafe_b64decode(d.encode('utf-8'))
+                                    if buf:
+                                        yield p.get('filename') or f"attachment_{m['id']}.pdf", buf
+                                for sp in (p.get('parts') or []):
+                                    stack.append(sp)
+                        payload = msg.get('payload', {}) or {}
+                        for fname, content in _yield_pdfs(payload):
                             with tempfile.TemporaryDirectory() as temp_dir:
-                                file_path = os.path.join(temp_dir, filename)
-                                with open(file_path, 'wb') as f:
-                                    f.write(content_bytes)
+                                path = os.path.join(temp_dir, fname)
+                                with open(path, 'wb') as f:
+                                    f.write(content)
                                 user_id = consent['userId']
-                                result = PDFProcessor.process_pdf_to_mongodb(file_path, user_id)
+                                result = PDFProcessor.process_pdf_to_mongodb(path, user_id)
                                 if result.get('success'):
-                                    EmailListenerService._generate_and_send_report(result, file_path, consent)
+                                    EmailListenerService._generate_and_send_report(result, path, consent)
                     except Exception as e:
                         logger.error(f"Gmail message processing error: {str(e)}")
                 db[EMAIL_CONSENT_COLLECTION].update_one({'_id': consent['_id']}, {'$set': {'lastChecked': datetime.now().isoformat()}})
@@ -159,9 +168,10 @@ class EmailListenerService:
         
         # Check keywords
         keywords = ['statement', 'account summary', 'monthly statement']
-        if not any(k in subject.lower() for k in keywords):
-            logger.info("Subject does not match keywords. Ignoring.")
-            return
+        if EMAIL_REQUIRE_SUBJECT_KEYWORDS:
+            if not any(k in subject.lower() for k in keywords):
+                logger.info("Subject does not match keywords. Ignoring.")
+                return
 
         # Extract attachments
         for part in msg.walk():
@@ -238,6 +248,9 @@ class EmailListenerService:
         if not MSG91_API_KEY or not MSG91_SENDER_EMAIL:
             logger.warning("MSG91 not configured. Attempting Gmail send fallback.")
             EmailListenerService._send_email_via_gmail(to_email, subject, body, attachment_path)
+            if EMAIL_USER and EMAIL_PASS:
+                # If Gmail API not available, SMTP can still work
+                EmailListenerService._send_email_via_smtp(to_email, subject, body, attachment_path)
             return
 
         payload = {
@@ -301,6 +314,31 @@ class EmailListenerService:
                 logger.error("Gmail send did not return message id")
         except Exception as e:
             logger.error(f"Gmail send error: {str(e)}")
+
+    @staticmethod
+    def _send_email_via_smtp(to_email, subject, body, attachment_path=None):
+        """Secondary fallback: SMTP using EMAIL_HOST_USER/PASS (e.g., Gmail App Password)"""
+        if not EMAIL_USER or not EMAIL_PASS:
+            logger.warning("SMTP not configured (EMAIL_HOST_USER/PASSWORD missing).")
+            return
+        try:
+            msg = EmailMessage()
+            msg['From'] = EMAIL_USER
+            msg['To'] = to_email
+            msg['Subject'] = subject
+            msg.set_content(body)
+
+            if attachment_path and os.path.exists(attachment_path):
+                with open(attachment_path, 'rb') as f:
+                    data = f.read()
+                msg.add_attachment(data, maintype='application', subtype='pdf', filename=os.path.basename(attachment_path))
+
+            with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp:
+                smtp.login(EMAIL_USER, EMAIL_PASS)
+                smtp.send_message(msg)
+            logger.info(f"SMTP: Email sent to {to_email}")
+        except Exception as e:
+            logger.error(f"SMTP send error: {str(e)}")
 
     @staticmethod
     def simulate_email_arrival(user_email, pdf_path):
