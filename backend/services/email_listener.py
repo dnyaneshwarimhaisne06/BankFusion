@@ -92,6 +92,13 @@ class EmailListenerService:
                 client_secret=clean_secret,
             )
             service = build('gmail', 'v1', credentials=creds, cache_discovery=False)
+            
+            profile = service.users().getProfile(userId="me").execute()
+            logger.info(f"Gmail authenticated as: {profile['emailAddress']}")
+            
+            creds = service._http.credentials
+            logger.info(f"Gmail token scopes: {creds.scopes}")
+
             return service
         except Exception as e:
             logger.error(f"Gmail API initialization failed: {str(e)}")
