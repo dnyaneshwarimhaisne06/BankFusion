@@ -56,8 +56,8 @@ class EmailListenerService:
             from google.oauth2.credentials import Credentials
             from googleapiclient.discovery import build
             scopes = [
-                'https://www.googleapis.com/auth/gmail.readonly',
-                'https://www.googleapis.com/auth/gmail.send'
+                "https://www.googleapis.com/auth/gmail.readonly",
+                "https://www.googleapis.com/auth/gmail.modify"
             ]
             token_uri = 'https://oauth2.googleapis.com/token'
             if not (GMAIL_CLIENT_ID and GMAIL_CLIENT_SECRET and GMAIL_REFRESH_TOKEN):
