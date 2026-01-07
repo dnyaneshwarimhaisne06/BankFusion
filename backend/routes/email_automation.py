@@ -98,9 +98,19 @@ def simulate_email():
         return jsonify(result)
     finally:
         # Cleanup
-        try:
-            if os.path.exists(filepath):
-                os.remove(filepath)
+        if os.path.exists(filepath):
+            os.remove(filepath)
+        if os.path.exists(temp_dir):
             os.rmdir(temp_dir)
-        except:
-            pass
+
+@email_bp.route('/trigger', methods=['POST'])
+def trigger_check():
+    """Manually trigger email check"""
+    try:
+        logger.info("Manual email check triggered via API")
+        EmailListenerService.process_inbox()
+        return jsonify({'success': True, 'message': 'Email check triggered'})
+    except Exception as e:
+        logger.error(f"Manual trigger error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+

@@ -115,6 +115,49 @@ def server_error(error):
     return jsonify(create_response(success=False, error=f"Server error: {str(error)}")), 500
 
 # ---------------------------------------------------
+# Background Tasks
+# ---------------------------------------------------
+def start_background_poller():
+    """Start the background email polling thread"""
+    def _email_poll_loop():
+        # Import inside to avoid potential circular imports during app initialization
+        try:
+            from services.email_listener import EmailListenerService
+            interval = int(os.getenv("EMAIL_POLL_INTERVAL_SECONDS", "15"))
+            logger.info(f"Starting email poll loop with interval {interval}s")
+            
+            # Initial delay to ensure app is fully loaded
+            time.sleep(5)
+            
+            while True:
+                try:
+                    EmailListenerService.process_inbox()
+                except Exception as e:
+                    logger.error(f"Email polling error: {e}")
+                time.sleep(interval)
+        except Exception as e:
+            logger.error(f"Failed to start poller loop: {e}")
+
+    # Only start if enabled
+    if os.getenv("EMAIL_POLL_ENABLED", "true").lower() == "true":
+        # Prevent double execution in local dev reloader (Werkzeug)
+        # WERKZEUG_RUN_MAIN is set in the reloader process.
+        # If DEBUG is False (Production), we just run.
+        # If DEBUG is True (Local), we only run if WERKZEUG_RUN_MAIN is true (the reloader) 
+        # OR if we are not using reloader (which we can't easily check, but usually we are).
+        # Actually, standard practice:
+        if not DEBUG or os.environ.get('WERKZEUG_RUN_MAIN') == 'true':
+            try:
+                t = threading.Thread(target=_email_poll_loop, daemon=True)
+                t.start()
+                logger.info("Background email poller thread initialized")
+            except Exception as e:
+                logger.error(f"Failed to start background thread: {e}")
+
+# Start the poller when app is loaded
+start_background_poller()
+
+# ---------------------------------------------------
 # Startup
 # ---------------------------------------------------
 if __name__ == "__main__":
@@ -123,21 +166,8 @@ if __name__ == "__main__":
     if not os.getenv("OPENAI_API_KEY"):
         raise RuntimeError("OPENAI_API_KEY missing")
 
+    # Explicit connect in main (optional now as get_db handles it)
     MongoDB.connect()
     logger.info("MongoDB connected")
-
-    def _email_poll_loop():
-        from services.email_listener import EmailListenerService
-        interval = int(os.getenv("EMAIL_POLL_INTERVAL_SECONDS", "15"))
-        while True:
-            try:
-                EmailListenerService.process_inbox()
-            except Exception as e:
-                logger.error(f"Email polling error: {e}")
-            time.sleep(interval)
-
-    if os.getenv("EMAIL_POLL_ENABLED", "true").lower() == "true":
-        t = threading.Thread(target=_email_poll_loop, daemon=True)
-        t.start()
 
     app.run(host=HOST, port=PORT, debug=DEBUG)
