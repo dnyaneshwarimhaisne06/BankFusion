@@ -108,8 +108,12 @@ def trigger_check():
     """Manually trigger email check"""
     try:
         logger.info("Manual email check triggered via API")
-        EmailListenerService.process_inbox()
-        return jsonify({'success': True, 'message': 'Email check triggered'})
+        stats = EmailListenerService.process_inbox()
+        return jsonify({
+            'success': True, 
+            'message': 'Email check triggered',
+            'details': stats
+        })
     except Exception as e:
         logger.error(f"Manual trigger error: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500

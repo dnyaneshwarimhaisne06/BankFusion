@@ -61,11 +61,15 @@ class EmailListenerService:
             token_uri = 'https://oauth2.googleapis.com/token'
             if not (GMAIL_CLIENT_ID and GMAIL_CLIENT_SECRET and GMAIL_REFRESH_TOKEN):
                 return None
+            
+            # Sanitize Client ID (remove http/https and trailing slash)
+            clean_client_id = GMAIL_CLIENT_ID.replace('http://', '').replace('https://', '').rstrip('/')
+            
             creds = Credentials(
                 token=None,
                 refresh_token=GMAIL_REFRESH_TOKEN,
                 token_uri=token_uri,
-                client_id=GMAIL_CLIENT_ID,
+                client_id=clean_client_id,
                 client_secret=GMAIL_CLIENT_SECRET,
                 scopes=scopes,
             )
@@ -80,47 +84,91 @@ class EmailListenerService:
         """
         Main entry point to check inbox.
         If simulation_mode is True, it doesn't connect to Gmail.
+        Returns a summary dict of actions taken.
         """
+        stats = {
+            'status': 'success',
+            'consented_users': 0,
+            'emails_found': 0,
+            'emails_processed': 0,
+            'pdfs_processed': 0,
+            'reports_sent': 0,
+            'errors': []
+        }
+
         if simulation_mode:
             logger.info("Running in simulation mode. Skipping real email check.")
-            return
+            stats['status'] = 'simulation_mode'
+            return stats
 
         service = EmailListenerService.connect_gmail()
         if not service:
-            return
+            stats['status'] = 'failed'
+            stats['errors'].append("Failed to connect to Gmail API")
+            return stats
 
         db = MongoDB.get_db()
         consents = EmailListenerService.get_consented_users()
+        stats['consented_users'] = len(consents)
+        
         if not consents:
-            return
+            logger.info("No consented users found. Skipping inbox check.")
+            return stats
+            
         for consent in consents:
             try:
                 # Build least-privilege query
-                keywords = '(subject:statement OR subject:"account summary" OR subject:"monthly statement")'
-                query = f'has:attachment filename:pdf {keywords}'
+                query = 'has:attachment filename:pdf'
+                if EMAIL_REQUIRE_SUBJECT_KEYWORDS:
+                    keywords = '(subject:statement OR subject:"account summary" OR subject:"monthly statement")'
+                    query = f'{query} {keywords}'
+                
+                # Filter by unread to avoid processing old emails repeatedly
+                # query += ' is:unread'  # Optional: Uncomment if we only want unread emails
+
                 allowed = consent.get('allowedSenders', [])
                 if allowed:
                     sender_filters = ' OR '.join([f'from:{s}' for s in allowed])
                     query = f'{query} ({sender_filters})'
+                
+                logger.info(f"Checking Gmail with query: {query}")
                 messages_list = service.users().messages().list(userId='me', q=query, includeSpamTrash=False).execute()
                 msgs = messages_list.get('messages', [])
+                stats['emails_found'] += len(msgs)
+                
                 if not msgs:
                     continue
+                
+                # Fetch latest consent to check processed IDs
+                current_consent = db[EMAIL_CONSENT_COLLECTION].find_one({'_id': consent['_id']})
+                processed_ids = set(current_consent.get('processedMessageIds', []))
+
                 for m in msgs:
+                    if m['id'] in processed_ids:
+                        continue
+
+                    stats['emails_processed'] += 1
                     try:
                         msg = service.users().messages().get(userId='me', id=m['id'], format='full').execute()
                         headers = msg.get('payload', {}).get('headers', [])
                         hdr = {h['name'].lower(): h['value'] for h in headers}
                         subject = hdr.get('subject', '') or ''
                         sender = hdr.get('from', '') or ''
+                        
+                        logger.info(f"Processing email: Subject='{subject}', Sender='{sender}'")
+                        
                         keywords = ['statement', 'account summary', 'monthly statement']
                         if EMAIL_REQUIRE_SUBJECT_KEYWORDS:
                             if not any(k in subject.lower() for k in keywords):
+                                logger.info(f"Skipping email '{subject}': Subject keyword mismatch")
                                 continue
+                        
                         allowed = consent.get('allowedSenders', [])
                         if allowed:
                             if not any(a.lower() in sender.lower() for a in allowed):
+                                logger.info(f"Skipping email '{subject}': Sender '{sender}' not in allowed list")
                                 continue
+                                
                         def _yield_pdfs(payload):
                             stack = [payload]
                             while stack:
@@ -142,8 +190,14 @@ class EmailListenerService:
                                         yield p.get('filename') or f"attachment_{m['id']}.pdf", buf
                                 for sp in (p.get('parts') or []):
                                     stack.append(sp)
+                                    
                         payload = msg.get('payload', {}) or {}
+                        pdf_count = 0
                         for fname, content in _yield_pdfs(payload):
+                            pdf_count += 1
+                            stats['pdfs_processed'] += 1
+                            logger.info(f"Processing PDF attachment: {fname}")
+                            
                             with tempfile.TemporaryDirectory() as temp_dir:
                                 path = os.path.join(temp_dir, fname)
                                 with open(path, 'wb') as f:
@@ -152,11 +206,32 @@ class EmailListenerService:
                                 result = PDFProcessor.process_pdf_to_mongodb(path, user_id)
                                 if result.get('success'):
                                     EmailListenerService._generate_and_send_report(result, path, consent)
+                                    stats['reports_sent'] += 1
+                                else:
+                                    err = f"PDF processing failed for {fname}: {result.get('error')}"
+                                    stats['errors'].append(err)
+                                    logger.error(err)
+                        
+                        if pdf_count == 0:
+                             logger.info(f"No PDF attachments found in email '{subject}'")
+
+                        # Mark message as processed
+                        db[EMAIL_CONSENT_COLLECTION].update_one(
+                            {'_id': consent['_id']},
+                            {'$addToSet': {'processedMessageIds': m['id']}}
+                        )
                     except Exception as e:
-                        logger.error(f"Gmail message processing error: {str(e)}")
+                        err_msg = f"Error processing message {m['id']}: {str(e)}"
+                        logger.error(err_msg)
+                        stats['errors'].append(err_msg)
+                        
                 db[EMAIL_CONSENT_COLLECTION].update_one({'_id': consent['_id']}, {'$set': {'lastChecked': datetime.now().isoformat()}})
             except Exception as e:
-                logger.error(f"Gmail inbox processing error: {str(e)}")
+                err_msg = f"Gmail inbox processing error: {str(e)}"
+                logger.error(err_msg)
+                stats['errors'].append(err_msg)
+        
+        return stats
 
     @staticmethod
     def _process_single_email(msg, user_consent):
