@@ -5,6 +5,8 @@ Main Application Entry Point
 
 import os
 import logging
+import threading
+import time
 from flask import Flask, jsonify, request, Response
 from flask_cors import CORS
 
@@ -123,5 +125,19 @@ if __name__ == "__main__":
 
     MongoDB.connect()
     logger.info("MongoDB connected")
+
+    def _email_poll_loop():
+        from services.email_listener import EmailListenerService
+        interval = int(os.getenv("EMAIL_POLL_INTERVAL_SECONDS", "45"))
+        while True:
+            try:
+                EmailListenerService.process_inbox()
+            except Exception as e:
+                logger.error(f"Email polling error: {e}")
+            time.sleep(interval)
+
+    if os.getenv("EMAIL_POLL_ENABLED", "true").lower() == "true":
+        t = threading.Thread(target=_email_poll_loop, daemon=True)
+        t.start()
 
     app.run(host=HOST, port=PORT, debug=DEBUG)
