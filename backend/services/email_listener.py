@@ -48,10 +48,13 @@ class EmailListenerService:
     @staticmethod
     def connect_gmail():
         try:
-            # OAuth 2.0 with read-only scope
+            # OAuth 2.0 with read/send scopes
             from google.oauth2.credentials import Credentials
             from googleapiclient.discovery import build
-            scopes = ['https://www.googleapis.com/auth/gmail.readonly']
+            scopes = [
+                'https://www.googleapis.com/auth/gmail.readonly',
+                'https://www.googleapis.com/auth/gmail.send'
+            ]
             token_uri = 'https://oauth2.googleapis.com/token'
             if not (GMAIL_CLIENT_ID and GMAIL_CLIENT_SECRET and GMAIL_REFRESH_TOKEN):
                 return None
@@ -233,7 +236,8 @@ class EmailListenerService:
     def _send_email(to_email, subject, body, attachment_path=None):
         """Send email with optional attachment via MSG91 (outbound only)"""
         if not MSG91_API_KEY or not MSG91_SENDER_EMAIL:
-            logger.warning("MSG91 not configured. Skipping email send.")
+            logger.warning("MSG91 not configured. Attempting Gmail send fallback.")
+            EmailListenerService._send_email_via_gmail(to_email, subject, body, attachment_path)
             return
 
         payload = {
@@ -267,6 +271,36 @@ class EmailListenerService:
                 logger.error(f"MSG91 send failed: {resp.status_code} {resp.text}")
         except Exception as e:
             logger.error(f"MSG91 request error: {str(e)}")
+
+    @staticmethod
+    def _send_email_via_gmail(to_email, subject, body, attachment_path=None):
+        """Fallback email send using Gmail API"""
+        try:
+            service = EmailListenerService.connect_gmail()
+            if not service:
+                logger.error("Gmail service not available; cannot send email.")
+                return
+
+            msg = MIMEMultipart()
+            msg['to'] = to_email
+            msg['subject'] = subject
+
+            msg.attach(MIMEText(body, 'plain'))
+
+            if attachment_path and os.path.exists(attachment_path):
+                with open(attachment_path, 'rb') as f:
+                    part = MIMEApplication(f.read(), Name=os.path.basename(attachment_path))
+                part['Content-Disposition'] = f'attachment; filename="{os.path.basename(attachment_path)}"'
+                msg.attach(part)
+
+            raw = base64.urlsafe_b64encode(msg.as_bytes()).decode('utf-8')
+            sent = service.users().messages().send(userId='me', body={'raw': raw}).execute()
+            if sent and sent.get('id'):
+                logger.info(f"Gmail: Email sent to {to_email}")
+            else:
+                logger.error("Gmail send did not return message id")
+        except Exception as e:
+            logger.error(f"Gmail send error: {str(e)}")
 
     @staticmethod
     def simulate_email_arrival(user_email, pdf_path):
