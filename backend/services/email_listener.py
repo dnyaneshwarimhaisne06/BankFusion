@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 EMAIL_USER = os.getenv('EMAIL_HOST_USER')
 EMAIL_PASS = os.getenv('EMAIL_HOST_PASSWORD')
 GMAIL_CREDENTIALS = os.getenv('GMAIL_API_CREDENTIALS')
-# Note: If changing scopes, delete token.json to force re-authentication
+# IMPORTANT: If changing scopes, delete token.json to force re-authentication.
 GMAIL_SCOPES = os.getenv('GMAIL_API_SCOPES', 'https://www.googleapis.com/auth/gmail.readonly,https://www.googleapis.com/auth/gmail.send,https://www.googleapis.com/auth/gmail.modify')
 GMAIL_CLIENT_ID = os.getenv('GMAIL_CLIENT_ID')
 GMAIL_CLIENT_SECRET = os.getenv('GMAIL_CLIENT_SECRET')
@@ -327,6 +327,7 @@ class EmailListenerService:
         """
         Generate financial report and send back to user.
         user_consent can be a dict (from DB) or a string (email address).
+        This method is static to avoid instantiation issues.
         """
         db = MongoDB.get_db()
         
@@ -340,7 +341,7 @@ class EmailListenerService:
             logger.error("Cannot send report: No email address provided")
             return
             
-        logger.info(f"Generating report for {to_email}")
+        logger.info(f"Report generation triggered for {to_email}")
         
         # Fetch data for summary
         statement_id = ObjectId(process_result['statementId'])
