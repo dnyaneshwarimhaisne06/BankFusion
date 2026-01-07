@@ -8,9 +8,11 @@ import os
 import tempfile
 from pathlib import Path
 from services.pdf_processor import PDFProcessor
+from services.email_listener import EmailListenerService
 from utils.serializers import create_response
-from utils.auth_helpers import get_user_id_from_request
+from utils.auth_helpers import get_user_id_from_request, get_user_email_from_request
 from db.mongo import MongoDB
+from db.email_schema import EMAIL_CONSENT_COLLECTION
 import logging
 
 logger = logging.getLogger(__name__)

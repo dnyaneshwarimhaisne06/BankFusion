@@ -7,6 +7,7 @@ from utils.auth_helpers import get_user_id_from_request
 from db.mongo import MongoDB
 from db.email_schema import EMAIL_CONSENT_COLLECTION, create_email_consent_doc
 from services.email_listener import EmailListenerService
+from utils.serializers import create_response
 
 email_bp = Blueprint('email_automation', __name__)
 logger = logging.getLogger(__name__)

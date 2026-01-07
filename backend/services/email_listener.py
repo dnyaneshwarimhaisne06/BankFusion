@@ -231,14 +231,14 @@ class EmailListenerService:
                                 with open(path, 'wb') as f:
                                     f.write(content)
                                 user_id = consent['userId']
-                                result = PDFProcessor.process_pdf_to_mongodb(path, user_id)
-                                if result.get('success'):
-                                    EmailListenerService._generate_and_send_report(result, path, consent)
-                                    stats['reports_sent'] += 1
-                                else:
-                                    err = f"PDF processing failed for {fname}: {result.get('error')}"
-                                    stats['errors'].append(err)
-                                    logger.error(err)
+                            result = PDFProcessor.process_pdf_to_mongodb(path, user_id)
+                            if result.get('success'):
+                                EmailListenerService.generate_and_send_report(result, path, consent.get('email'))
+                                stats['reports_sent'] += 1
+                            else:
+                                err = f"PDF processing failed for {fname}: {result.get('error')}"
+                                stats['errors'].append(err)
+                                logger.error(err)
                         
                         if pdf_count == 0:
                              logger.info(f"No PDF attachments found in email '{subject}'")
@@ -448,7 +448,7 @@ class EmailListenerService:
             result = PDFProcessor.process_pdf_to_mongodb(pdf_path, user_id)
             
             if result.get('success'):
-                EmailListenerService._generate_and_send_report(result, pdf_path, user_consent)
+                EmailListenerService.generate_and_send_report(result, pdf_path, user_consent.get('email'))
                 return {'success': True, 'message': 'Processed and report sent'}
             else:
                 return {'success': False, 'message': 'Processing failed'}
