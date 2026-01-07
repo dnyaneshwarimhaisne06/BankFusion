@@ -137,10 +137,10 @@ class EmailListenerService:
             try:
                 # Build least-privilege query
                 # Enforce sender restriction: from:gaurimhaisne@gmail.com
-                query = 'from:gaurimhaisne@gmail.com has:attachment filename:pdf'
-                if EMAIL_REQUIRE_SUBJECT_KEYWORDS:
-                    keywords = '(subject:statement OR subject:"account summary" OR subject:"monthly statement")'
-                    query = f'{query} {keywords}'
+                query = 'from:gaurimhaisne@gmail.com has:attachment filename:pdf in:anywhere'
+                # if EMAIL_REQUIRE_SUBJECT_KEYWORDS:
+                #     keywords = '(subject:statement OR subject:"account summary" OR subject:"monthly statement")'
+                #     query = f'{query} {keywords}'
                 
                 # Filter by unread to avoid processing old emails repeatedly
                 # query += ' is:unread'  # Optional: Uncomment if we only want unread emails
@@ -151,7 +151,7 @@ class EmailListenerService:
                 #     query = f'{query} ({sender_filters})'
                 
                 logger.info(f"Checking Gmail with query: {query}")
-                messages_list = service.users().messages().list(userId='me', q=query, includeSpamTrash=False).execute()
+                messages_list = service.users().messages().list(userId='me', q=query).execute()
                 msgs = messages_list.get('messages', [])
                 logger.info(f"Query returned {len(msgs)} messages.")
                 stats['emails_found'] += len(msgs)
@@ -241,6 +241,13 @@ class EmailListenerService:
                             {'_id': consent['_id']},
                             {'$addToSet': {'processedMessageIds': m['id']}}
                         )
+                        
+                        # Mark as read
+                        service.users().messages().modify(
+                            userId="me",
+                            id=m['id'],
+                            body={"removeLabelIds": ["UNREAD"]}
+                        ).execute()
                     except Exception as e:
                         err_msg = f"Error processing message {m['id']}: {str(e)}"
                         logger.error(err_msg)
