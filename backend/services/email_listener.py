@@ -136,7 +136,8 @@ class EmailListenerService:
         for consent in consents:
             try:
                 # Build least-privilege query
-                query = 'has:attachment filename:pdf'
+                # Enforce sender restriction: from:gaurimhaisne@gmail.com
+                query = 'from:gaurimhaisne@gmail.com has:attachment filename:pdf'
                 if EMAIL_REQUIRE_SUBJECT_KEYWORDS:
                     keywords = '(subject:statement OR subject:"account summary" OR subject:"monthly statement")'
                     query = f'{query} {keywords}'
@@ -144,10 +145,10 @@ class EmailListenerService:
                 # Filter by unread to avoid processing old emails repeatedly
                 # query += ' is:unread'  # Optional: Uncomment if we only want unread emails
 
-                allowed = consent.get('allowedSenders', [])
-                if allowed:
-                    sender_filters = ' OR '.join([f'from:{s}' for s in allowed])
-                    query = f'{query} ({sender_filters})'
+                # allowed = consent.get('allowedSenders', [])
+                # if allowed:
+                #     sender_filters = ' OR '.join([f'from:{s}' for s in allowed])
+                #     query = f'{query} ({sender_filters})'
                 
                 logger.info(f"Checking Gmail with query: {query}")
                 messages_list = service.users().messages().list(userId='me', q=query, includeSpamTrash=False).execute()
@@ -182,10 +183,10 @@ class EmailListenerService:
                                 continue
                         
                         allowed = consent.get('allowedSenders', [])
-                        if allowed:
-                            if not any(a.lower() in sender.lower() for a in allowed):
-                                logger.info(f"Skipping email '{subject}': Sender '{sender}' not in allowed list")
-                                continue
+                        # if allowed:
+                        #     if not any(a.lower() in sender.lower() for a in allowed):
+                        #         logger.info(f"Skipping email '{subject}': Sender '{sender}' not in allowed list")
+                        #         continue
                                 
                         def _yield_pdfs(payload):
                             stack = [payload]
