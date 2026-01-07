@@ -90,7 +90,6 @@ class EmailListenerService:
                 token_uri=token_uri,
                 client_id=clean_client_id,
                 client_secret=clean_secret,
-                scopes=scopes,
             )
             service = build('gmail', 'v1', credentials=creds, cache_discovery=False)
             return service
