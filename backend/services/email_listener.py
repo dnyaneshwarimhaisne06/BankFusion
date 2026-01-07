@@ -231,14 +231,15 @@ class EmailListenerService:
                                 with open(path, 'wb') as f:
                                     f.write(content)
                                 user_id = consent['userId']
-                            result = PDFProcessor.process_pdf_to_mongodb(path, user_id)
-                            if result.get('success'):
-                                EmailListenerService.generate_and_send_report(result, path, consent.get('email'))
-                                stats['reports_sent'] += 1
-                            else:
-                                err = f"PDF processing failed for {fname}: {result.get('error')}"
-                                stats['errors'].append(err)
-                                logger.error(err)
+                                
+                                result = PDFProcessor.process_pdf_to_mongodb(path, user_id)
+                                if result.get('success'):
+                                    EmailListenerService.generate_and_send_report(result, path, consent.get('email'))
+                                    stats['reports_sent'] += 1
+                                else:
+                                    err = f"PDF processing failed for {fname}: {result.get('error')}"
+                                    stats['errors'].append(err)
+                                    logger.error(err)
                         
                         if pdf_count == 0:
                              logger.info(f"No PDF attachments found in email '{subject}'")
@@ -313,7 +314,7 @@ class EmailListenerService:
                     
                     if result.get('success'):
                         # Generate Report
-                        EmailListenerService._generate_and_send_report(result, file_path, user_consent)
+                        EmailListenerService.generate_and_send_report(result, file_path, user_consent)
                     else:
                         logger.error(f"PDF Processing failed for {filename}")
                         
@@ -346,7 +347,7 @@ class EmailListenerService:
             
             # Send Email
             EmailListenerService._send_email(
-                to_email=user_consent['email'],
+                to_email=to_email,
                 subject="Your BankFusion Financial Summary",
                 body="Your bank statement has been successfully processed by BankFusion.\nPlease find your financial summary attached.",
                 attachment_path=report_path

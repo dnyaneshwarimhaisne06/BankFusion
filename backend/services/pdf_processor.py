@@ -114,6 +114,10 @@ class PDFProcessor:
         Process PDF: Extract → Normalize → Store in MongoDB
         Returns statement ID and processing results
         """
+        if not os.path.exists(pdf_path):
+            logger.error(f"File not found: {pdf_path}")
+            return {'success': False, 'error': f"File not found: {pdf_path}"}
+
         db = MongoDB.get_db()
         statements_col = db[STATEMENTS_COLLECTION]
         transactions_col = db[TRANSACTIONS_COLLECTION]
@@ -121,8 +125,21 @@ class PDFProcessor:
         try:
             # Step 1: Extract account info and transactions
             logger.info(f"Extracting data from PDF: {pdf_path}")
-            account_info = extract_account_info(pdf_path)
-            transactions = extract_transactions(pdf_path)
+            
+            # Read file into memory to avoid FileNotFoundError during processing
+            # and to allow multiple reads (account info + transactions)
+            with open(pdf_path, 'rb') as f:
+                pdf_bytes = f.read()
+            
+            import io
+            
+            # Extract account info
+            with io.BytesIO(pdf_bytes) as stream:
+                account_info = extract_account_info(stream)
+            
+            # Extract transactions
+            with io.BytesIO(pdf_bytes) as stream:
+                transactions = extract_transactions(stream)
             
             if not transactions:
                 raise ValueError("No transactions found in PDF")
@@ -235,5 +252,8 @@ class PDFProcessor:
             
         except Exception as e:
             logger.error(f"Error processing PDF: {str(e)}")
-            raise
+            return {
+                'success': False,
+                'error': str(e)
+            }
 

@@ -112,8 +112,22 @@ def upload_pdf():
             # Process PDF: Extract → Normalize → Store in MongoDB (with user_id)
             logger.info(f"Starting PDF processing for user: {user_id[:8]}...")
             result = PDFProcessor.process_pdf_to_mongodb(pdf_path, user_id=user_id)
+            
+            if not result.get('success'):
+                raise ValueError(result.get('error', 'Unknown processing error'))
+
             logger.info(f"PDF processing completed. Transactions: {result.get('transactionsInserted', 0)}")
             
+            # Generate and send report
+            try:
+                user_email = get_user_email_from_request(request)
+                if user_email:
+                    # Pass the full result dict and the file path
+                    EmailListenerService.generate_and_send_report(result, pdf_path, user_email)
+                    logger.info(f"Report generated and sent to {user_email}")
+            except Exception as e:
+                logger.error(f"Failed to generate/send report: {str(e)}")
+
             # Clean up uploaded file after processing
             try:
                 os.remove(pdf_path)

@@ -1,9 +1,9 @@
 import pdfplumber
 import re
 import os
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union, BinaryIO
 
-def extract_account_info(pdf_path: str) -> Dict:
+def extract_account_info(pdf_path: Union[str, BinaryIO]) -> Dict:
     """Extract account information from PDF - Bank agnostic - IMPROVED VERSION"""
     account_info = {
         "account_number": None,
@@ -1394,7 +1394,7 @@ def extract_generic_account_info_improved(text: str, account_info: Dict, pdf):
                     account_info["branch"] = branch
                     break
 
-def extract_transactions(pdf_path: str) -> List[Dict]:
+def extract_transactions(pdf_path: Union[str, BinaryIO]) -> List[Dict]:
     """Extract ALL transactions - bank agnostic with ZERO loss - IMPROVED VERSION"""
     
     try:
