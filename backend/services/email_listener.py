@@ -107,9 +107,8 @@ class EmailListenerService:
             stats['status'] = 'simulation_mode'
             return stats
 
-        try:
-            db = MongoDB.get_db()
-            consents = EmailListenerService.get_consented_users()
+        db = MongoDB.get_db()
+        consents = EmailListenerService.get_consented_users()
         stats['consented_users'] = len(consents)
         
         if not consents:
