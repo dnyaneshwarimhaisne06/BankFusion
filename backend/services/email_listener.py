@@ -17,6 +17,7 @@ from email.message import EmailMessage
 
 from db.mongo import MongoDB
 from db.email_schema import EMAIL_CONSENT_COLLECTION
+from db.gmail_tokens import get_gmail_token
 from services.pdf_processor import PDFProcessor
 from services.ai_summary import generate_expense_summary
 from services.report_generator import ReportGenerator
@@ -52,58 +53,36 @@ class EmailListenerService:
         return list(db[EMAIL_CONSENT_COLLECTION].find({'isActive': True, 'consentGiven': True}))
 
     @staticmethod
-    def connect_gmail():
+    def get_gmail_service(user_id: str):
+        """Create a Gmail service for a specific user using stored tokens"""
         try:
-            # OAuth 2.0 with read/send scopes
             from google.oauth2.credentials import Credentials
             from googleapiclient.discovery import build
-            scopes = [
-                "https://www.googleapis.com/auth/gmail.readonly",
-                "https://www.googleapis.com/auth/gmail.modify"
-            ]
-            token_uri = 'https://oauth2.googleapis.com/token'
-            if not (GMAIL_CLIENT_ID and GMAIL_CLIENT_SECRET and GMAIL_REFRESH_TOKEN):
+            token_doc = get_gmail_token(user_id)
+            if not token_doc:
+                logger.warning(f"No Gmail token found for user {user_id}")
                 return None
-            
-            # Aggressive Sanitization
-            # 1. Client ID: Remove quotes, whitespace, protocol prefixes, trailing slashes
-            #    Then try to extract the specific pattern [0-9]+-[a-z0-9]+.apps.googleusercontent.com
-            clean_client_id = GMAIL_CLIENT_ID.strip().strip("'").strip('"')
-            clean_client_id = clean_client_id.replace('http://', '').replace('https://', '').rstrip('/')
-            
-            # Regex extraction for extra safety (if garbage is attached)
-            match = re.search(r'(\d+-[a-z0-9]+\.apps\.googleusercontent\.com)', clean_client_id)
-            if match:
-                clean_client_id = match.group(1)
-            
-            # 2. Secret: Remove quotes and whitespace
-            clean_secret = GMAIL_CLIENT_SECRET.strip().strip("'").strip('"')
-            
-            # 3. Refresh Token: Remove quotes and whitespace
-            clean_refresh = GMAIL_REFRESH_TOKEN.strip().strip("'").strip('"')
-            
-            # Log masked credentials for verification
-            masked_id = clean_client_id[:10] + "..." + clean_client_id[-10:] if len(clean_client_id) > 20 else "INVALID"
-            logger.info(f"Using sanitized Gmail Client ID: {masked_id}")
-            
+            access_token = token_doc.get('access_token')
+            refresh_token = token_doc.get('refresh_token')
+            token_uri = 'https://oauth2.googleapis.com/token'
+            client_id = (GMAIL_CLIENT_ID or '').strip().strip("'").strip('"')
+            client_secret = (GMAIL_CLIENT_SECRET or '').strip().strip("'").strip('"')
+            if not client_id or not client_secret:
+                logger.error("Gmail client credentials missing")
+                return None
             creds = Credentials(
-                token=None,
-                refresh_token=clean_refresh,
+                token=access_token,
+                refresh_token=refresh_token,
                 token_uri=token_uri,
-                client_id=clean_client_id,
-                client_secret=clean_secret,
+                client_id=client_id,
+                client_secret=client_secret,
             )
             service = build('gmail', 'v1', credentials=creds, cache_discovery=False)
-            
             profile = service.users().getProfile(userId="me").execute()
-            logger.info(f"Gmail authenticated as: {profile['emailAddress']}")
-            
-            creds = service._http.credentials
-            logger.info(f"Gmail token scopes: {creds.scopes}")
-
+            logger.info(f"Gmail authenticated as: {profile.get('emailAddress')}")
             return service
         except Exception as e:
-            logger.error(f"Gmail API initialization failed: {str(e)}")
+            logger.error(f"Gmail service build failed for user {user_id}: {str(e)}")
             return None
 
     @staticmethod
@@ -128,20 +107,9 @@ class EmailListenerService:
             stats['status'] = 'simulation_mode'
             return stats
 
-        service = EmailListenerService.connect_gmail()
-        if not service:
-            stats['status'] = 'failed'
-            stats['errors'].append("Failed to connect to Gmail API")
-            return stats
-        
         try:
-            profile = service.users().getProfile(userId="me").execute()
-            mailbox_email = profile.get('emailAddress')
-        except Exception:
-            mailbox_email = None
-
-        db = MongoDB.get_db()
-        consents = EmailListenerService.get_consented_users()
+            db = MongoDB.get_db()
+            consents = EmailListenerService.get_consented_users()
         stats['consented_users'] = len(consents)
         
         if not consents:
@@ -150,6 +118,10 @@ class EmailListenerService:
             
         for consent in consents:
             try:
+                service = EmailListenerService.get_gmail_service(consent['userId'])
+                if not service:
+                    logger.info(f"Skipping user {consent['userId']}: Gmail not authorized")
+                    continue
                 # Build least-privilege query
                 # Enforce sender restriction: from:gaurimhaisne@gmail.com
                 query = (
@@ -170,7 +142,7 @@ class EmailListenerService:
                 #     sender_filters = ' OR '.join([f'from:{s}' for s in allowed])
                 #     query = f'{query} ({sender_filters})'
                 
-                logger.info(f"Checking Gmail with query: {query}")
+                logger.info(f"Checking Gmail for user {consent['userId']} with query: {query}")
                 messages_list = service.users().messages().list(userId='me', q=query).execute()
                 msgs = messages_list.get('messages', [])
                 logger.info(f"Query returned {len(msgs)} messages.")
@@ -509,7 +481,10 @@ class EmailListenerService:
     def _send_email_via_gmail(to_email, subject, body, attachment_path=None):
         """Fallback email send using Gmail API"""
         try:
-            service = EmailListenerService.connect_gmail()
+            db = MongoDB.get_db()
+            consent = db[EMAIL_CONSENT_COLLECTION].find_one({'email': to_email, 'isActive': True})
+            user_id = consent.get('userId') if consent else None
+            service = EmailListenerService.get_gmail_service(user_id) if user_id else None
             if not service:
                 logger.error("Gmail service not available; cannot send email.")
                 return

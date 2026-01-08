@@ -20,6 +20,7 @@ class ReportGenerator:
         doc = SimpleDocTemplate(output_path, pagesize=letter)
         styles = getSampleStyleSheet()
         story = []
+        doc_width = doc.width
 
         # Title
         title_style = styles['Title']
@@ -44,7 +45,7 @@ class ReportGenerator:
                 ["Account", bd.get('account_number', 'N/A')],
                 ["Account Holder", bd.get('account_holder', 'N/A')],
             ],
-            colWidths=[120, 360]
+            colWidths=[doc_width * 0.25, doc_width * 0.75]
         )
         bank_details_table.setStyle(TableStyle([
             ('BACKGROUND', (0,0), (-1,0), colors.whitesmoke),
@@ -69,7 +70,7 @@ class ReportGenerator:
                 ["Net Flow", f"{fs.get('net_flow', 0):,.2f}"],
                 ["Final Balance", f"{abs(fs.get('final_balance', 0)):,.2f}"],
             ],
-            colWidths=[240, 240]
+            colWidths=[doc_width * 0.5, doc_width * 0.5]
         )
         financial_table.setStyle(TableStyle([
             ('BACKGROUND', (0,0), (-1,0), colors.Color(59/255,130/255,246/255)),
@@ -91,7 +92,7 @@ class ReportGenerator:
         cb_rows = [["Category", "Transactions", "Total Spending (Rs.)"]]
         for item in cb:
             cb_rows.append([item.get('category', 'Uncategorized'), str(item.get('count', 0)), f"{item.get('debit', 0):,.2f}"])
-        category_table = Table(cb_rows, colWidths=[240, 120, 120])
+        category_table = Table(cb_rows, colWidths=[doc_width * 0.5, doc_width * 0.25, doc_width * 0.25])
         category_table.setStyle(TableStyle([
             ('BACKGROUND', (0,0), (-1,0), colors.Color(59/255,130/255,246/255)),
             ('TEXTCOLOR', (0,0), (-1,0), colors.white),
@@ -110,16 +111,36 @@ class ReportGenerator:
         story.append(Paragraph("All Transactions", styles['Heading2']))
         txns: List[Dict[str, Any]] = data.get('transactions', [])
         txn_rows = [["Date", "Description", "Category", "Debit (Rs.)", "Credit (Rs.)", "Balance (Rs.)"]]
+        cell_style = ParagraphStyle('Cell', parent=styles['Normal'], fontSize=8, leading=10)
+        desc_style = ParagraphStyle('Desc', parent=styles['Normal'], fontSize=8, leading=10, wordWrap='LTR')
+        def fmt_date(v):
+            if isinstance(v, datetime):
+                return v.strftime('%Y-%m-%d')
+            s = str(v or '')
+            if 'T' in s:
+                return s.split('T')[0]
+            return s.split()[0] if s else ''
         for t in txns:
             txn_rows.append([
-                str(t.get('date') or ''),
-                str(t.get('description') or '')[:60],
-                str(t.get('category') or ''),
+                Paragraph(fmt_date(t.get('date')), cell_style),
+                Paragraph(str(t.get('description') or ''), desc_style),
+                Paragraph(str(t.get('category') or ''), cell_style),
                 f"{float(t.get('debit', 0) or 0):,.2f}",
                 f"{float(t.get('credit', 0) or 0):,.2f}",
                 f"{abs(float(t.get('balance', 0) or 0)):,.2f}",
             ])
-        txn_table = Table(txn_rows, colWidths=[70, 210, 80, 70, 70, 70], repeatRows=1)
+        txn_table = Table(
+            txn_rows,
+            colWidths=[
+                doc_width * 0.16,
+                doc_width * 0.38,
+                doc_width * 0.16,
+                doc_width * 0.1,
+                doc_width * 0.1,
+                doc_width * 0.1
+            ],
+            repeatRows=1
+        )
         txn_table.setStyle(TableStyle([
             ('BACKGROUND', (0,0), (-1,0), colors.whitesmoke),
             ('TEXTCOLOR', (0,0), (-1,0), colors.black),
