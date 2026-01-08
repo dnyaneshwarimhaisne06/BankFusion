@@ -133,6 +133,12 @@ class EmailListenerService:
             stats['status'] = 'failed'
             stats['errors'].append("Failed to connect to Gmail API")
             return stats
+        
+        try:
+            profile = service.users().getProfile(userId="me").execute()
+            mailbox_email = profile.get('emailAddress')
+        except Exception:
+            mailbox_email = None
 
         db = MongoDB.get_db()
         consents = EmailListenerService.get_consented_users()
@@ -282,7 +288,11 @@ class EmailListenerService:
                                 result = PDFProcessor.process_pdf_to_mongodb(path, user_id)
                                 if result.get('success'):
                                     try:
-                                        EmailListenerService.generate_and_send_report(result, path, consent.get('email'))
+                                        EmailListenerService.generate_and_send_report(
+                                            result,
+                                            path,
+                                            mailbox_email or consent.get('email')
+                                        )
                                         stats['reports_sent'] += 1
                                         any_success = True
                                     except Exception as e:
@@ -403,9 +413,62 @@ class EmailListenerService:
         # Generate AI Summary
         summary = generate_expense_summary(statement, transactions)
         
-        # Prepare data for report
-        report_data = process_result.copy()
-        report_data['summary'] = summary
+        # Prepare data for report aligned with frontend PDF layout
+        # Transform transactions to debit/credit form and compute stats
+        txns_sorted = sorted(transactions, key=lambda t: t.get('date') or '')
+        transformed_txns = []
+        total_debit = 0.0
+        total_credit = 0.0
+        category_totals = {}
+        final_balance = txns_sorted[-1].get('balance', 0) if txns_sorted else 0
+        
+        for t in txns_sorted:
+            amount = float(t.get('amount', 0) or 0)
+            direction = (t.get('direction') or '').lower()
+            debit = amount if direction == 'debit' else 0.0
+            credit = amount if direction == 'credit' else 0.0
+            total_debit += debit
+            total_credit += credit
+            cat = t.get('category') or 'Uncategorized'
+            category_totals[cat] = {
+                'debit': (category_totals.get(cat, {}).get('debit', 0) + debit),
+                'count': (category_totals.get(cat, {}).get('count', 0) + 1)
+            }
+            transformed_txns.append({
+                'date': t.get('date'),
+                'description': t.get('description'),
+                'category': cat,
+                'debit': debit,
+                'credit': credit,
+                'balance': t.get('balance', 0)
+            })
+        
+        category_breakdown = [
+            {'category': k, 'debit': v['debit'], 'count': v['count']}
+            for k, v in category_totals.items()
+        ]
+        category_breakdown.sort(key=lambda x: x['debit'], reverse=True)
+        
+        report_data = {
+            'report_title': 'Bank Statement Summary Report',
+            'generated_at': datetime.now().isoformat(),
+            'bank_details': {
+                'bank_name': statement.get('bankType', 'Unknown'),
+                'file_name': statement.get('fileName', 'Untitled'),
+                'upload_date': statement.get('uploadDate') or (statement.get('createdAt').isoformat() if statement.get('createdAt') else None),
+                'account_number': statement.get('accountNumber'),
+                'account_holder': statement.get('accountHolder')
+            },
+            'financial_summary': {
+                'total_credit': total_credit,
+                'total_debit': total_debit,
+                'net_flow': total_credit - total_debit,
+                'final_balance': abs(final_balance)
+            },
+            'category_breakdown': category_breakdown,
+            'transactions': transformed_txns,
+            'summary': summary
+        }
         
         # Generate PDF Report
         with tempfile.TemporaryDirectory() as temp_dir:
