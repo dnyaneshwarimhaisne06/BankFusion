@@ -198,6 +198,21 @@ class EmailListenerService:
                                     logger.info(f"[DEBUG] Unread sample From='{frm}' Subject='{subj}' Attachments={filenames}")
                                 except Exception as de:
                                     logger.error(f"[DEBUG] Failed to inspect unread sample {sid}: {str(de)}")
+                            try:
+                                subqs = [
+                                    "from:gaurimhaisne@gmail.com is:unread",
+                                    "has:attachment is:unread",
+                                    "filename:pdf is:unread",
+                                    "from:gaurimhaisne@gmail.com has:attachment is:unread",
+                                    "from:gaurimhaisne@gmail.com filename:pdf is:unread",
+                                    "has:attachment filename:pdf is:unread",
+                                ]
+                                for sq in subqs:
+                                    r = service.users().messages().list(userId='me', q=sq).execute()
+                                    c = len(r.get('messages', []))
+                                    logger.info(f"[DEBUG] Subquery '{sq}' returned {c} messages")
+                            except Exception as se:
+                                logger.error(f"[DEBUG] Subquery checks failed: {str(se)}")
                         EmailListenerService._debug_unread_done = True
                     except Exception as e:
                         logger.error(f"[DEBUG] is:unread check failed: {str(e)}")
