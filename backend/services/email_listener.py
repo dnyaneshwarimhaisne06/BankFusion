@@ -43,6 +43,7 @@ class EmailListenerService:
     """
     Service to listen for emails with bank statements, process them, and reply with reports.
     """
+    _debug_unread_done = False
 
     @staticmethod
     def get_consented_users() -> List[Dict]:
@@ -168,6 +169,38 @@ class EmailListenerService:
                 msgs = messages_list.get('messages', [])
                 logger.info(f"Query returned {len(msgs)} messages.")
                 stats['emails_found'] += len(msgs)
+                
+                if not msgs and not EmailListenerService._debug_unread_done:
+                    try:
+                        dbg = service.users().messages().list(userId='me', q="is:unread").execute()
+                        dbg_msgs = dbg.get('messages', [])
+                        logger.info(f"[DEBUG] is:unread returned {len(dbg_msgs)} messages")
+                        if dbg_msgs:
+                            sample_ids = [m['id'] for m in dbg_msgs[:5]]
+                            logger.info(f"[DEBUG] Sample unread IDs: {', '.join(sample_ids)}")
+                            for sid in sample_ids:
+                                try:
+                                    dmsg = service.users().messages().get(userId='me', id=sid, format='full').execute()
+                                    headers = dmsg.get('payload', {}).get('headers', [])
+                                    hdr = {h['name'].lower(): h['value'] for h in headers}
+                                    frm = hdr.get('from', '')
+                                    subj = hdr.get('subject', '')
+                                    payload = dmsg.get('payload', {}) or {}
+                                    filenames = []
+                                    stack = [payload]
+                                    while stack:
+                                        p = stack.pop()
+                                        fn = (p.get('filename') or '')
+                                        if fn:
+                                            filenames.append(fn)
+                                        for sp in (p.get('parts') or []):
+                                            stack.append(sp)
+                                    logger.info(f"[DEBUG] Unread sample From='{frm}' Subject='{subj}' Attachments={filenames}")
+                                except Exception as de:
+                                    logger.error(f"[DEBUG] Failed to inspect unread sample {sid}: {str(de)}")
+                        EmailListenerService._debug_unread_done = True
+                    except Exception as e:
+                        logger.error(f"[DEBUG] is:unread check failed: {str(e)}")
                 
                 if not msgs:
                     continue
