@@ -11,7 +11,11 @@ from typing import Dict
 
 load_dotenv()
 
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+def _get_openai_client():
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        return None
+    return OpenAI(api_key=api_key)
 
 SYSTEM_PROMPT = """You are an Enterprise-grade Financial Transaction Classification Engine designed for Indian bank statements.
 Your responsibility is to accurately interpret noisy, inconsistent, and previously unseen transaction descriptions and normalize them into structured financial metadata.
@@ -131,6 +135,9 @@ def normalize_transaction_with_openai(txn: Dict) -> Dict:
     }
     
     try:
+        client = _get_openai_client()
+        if client is None:
+            return fallback_normalization(txn)
         print("⚠️ OpenAI normalization invoked")
         response = client.chat.completions.create(
             model="gpt-4o-mini",

@@ -45,6 +45,7 @@ class EmailListenerService:
     Service to listen for emails with bank statements, process them, and reply with reports.
     """
     _debug_unread_done = False
+    _no_token_users = set()
 
     @staticmethod
     def get_consented_users() -> List[Dict]:
@@ -53,16 +54,19 @@ class EmailListenerService:
         return list(db[EMAIL_CONSENT_COLLECTION].find({'isActive': True, 'consentGiven': True}))
 
     @staticmethod
-    def get_gmail_service(user_id: str, silent_if_no_token: bool = False):
+    def get_gmail_service(user_id: str):
         """Create a Gmail service for a specific user using stored tokens"""
         try:
             from google.oauth2.credentials import Credentials
             from googleapiclient.discovery import build
             from google.auth.transport.requests import Request
+            if not user_id:
+                return None
             token_doc = get_gmail_token(user_id)
             if not token_doc:
-                if not silent_if_no_token:
-                    logger.warning(f"No Gmail token found for user {user_id}")
+                if user_id not in EmailListenerService._no_token_users:
+                    EmailListenerService._no_token_users.add(user_id)
+                    logger.debug(f"Skipping user {user_id}: Gmail not authorized (No token found)")
                 return None
             access_token = token_doc.get('access_token')
             refresh_token = token_doc.get('refresh_token')
