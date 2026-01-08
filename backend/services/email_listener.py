@@ -17,6 +17,7 @@ from email.message import EmailMessage
 
 from db.mongo import MongoDB
 from db.email_schema import EMAIL_CONSENT_COLLECTION
+from db.gmail_tokens import get_gmail_token, upsert_gmail_token
 from services.pdf_processor import PDFProcessor
 from services.ai_summary import generate_expense_summary
 from services.report_generator import ReportGenerator
@@ -28,7 +29,8 @@ logger = logging.getLogger(__name__)
 EMAIL_USER = os.getenv('EMAIL_HOST_USER')
 EMAIL_PASS = os.getenv('EMAIL_HOST_PASSWORD')
 GMAIL_CREDENTIALS = os.getenv('GMAIL_API_CREDENTIALS')
-GMAIL_SCOPES = os.getenv('GMAIL_API_SCOPES', 'https://www.googleapis.com/auth/gmail.readonly,https://www.googleapis.com/auth/gmail.send')
+# IMPORTANT: If changing scopes, delete token.json to force re-authentication.
+GMAIL_SCOPES = os.getenv('GMAIL_API_SCOPES', 'https://www.googleapis.com/auth/gmail.readonly,https://www.googleapis.com/auth/gmail.send,https://www.googleapis.com/auth/gmail.modify')
 GMAIL_CLIENT_ID = os.getenv('GMAIL_CLIENT_ID')
 GMAIL_CLIENT_SECRET = os.getenv('GMAIL_CLIENT_SECRET')
 GMAIL_REFRESH_TOKEN = os.getenv('GMAIL_REFRESH_TOKEN')
@@ -42,6 +44,7 @@ class EmailListenerService:
     """
     Service to listen for emails with bank statements, process them, and reply with reports.
     """
+    _debug_unread_done = False
 
     @staticmethod
     def get_consented_users() -> List[Dict]:
@@ -50,58 +53,49 @@ class EmailListenerService:
         return list(db[EMAIL_CONSENT_COLLECTION].find({'isActive': True, 'consentGiven': True}))
 
     @staticmethod
-    def connect_gmail():
+    def get_gmail_service(user_id: str):
+        """Create a Gmail service for a specific user using stored tokens"""
         try:
-            # OAuth 2.0 with read/send scopes
             from google.oauth2.credentials import Credentials
             from googleapiclient.discovery import build
-            scopes = [
-                "https://www.googleapis.com/auth/gmail.readonly",
-                "https://www.googleapis.com/auth/gmail.modify"
-            ]
-            token_uri = 'https://oauth2.googleapis.com/token'
-            if not (GMAIL_CLIENT_ID and GMAIL_CLIENT_SECRET and GMAIL_REFRESH_TOKEN):
+            from google.auth.transport.requests import Request
+            token_doc = get_gmail_token(user_id)
+            if not token_doc:
+                logger.warning(f"No Gmail token found for user {user_id}")
                 return None
-            
-            # Aggressive Sanitization
-            # 1. Client ID: Remove quotes, whitespace, protocol prefixes, trailing slashes
-            #    Then try to extract the specific pattern [0-9]+-[a-z0-9]+.apps.googleusercontent.com
-            clean_client_id = GMAIL_CLIENT_ID.strip().strip("'").strip('"')
-            clean_client_id = clean_client_id.replace('http://', '').replace('https://', '').rstrip('/')
-            
-            # Regex extraction for extra safety (if garbage is attached)
-            match = re.search(r'(\d+-[a-z0-9]+\.apps\.googleusercontent\.com)', clean_client_id)
-            if match:
-                clean_client_id = match.group(1)
-            
-            # 2. Secret: Remove quotes and whitespace
-            clean_secret = GMAIL_CLIENT_SECRET.strip().strip("'").strip('"')
-            
-            # 3. Refresh Token: Remove quotes and whitespace
-            clean_refresh = GMAIL_REFRESH_TOKEN.strip().strip("'").strip('"')
-            
-            # Log masked credentials for verification
-            masked_id = clean_client_id[:10] + "..." + clean_client_id[-10:] if len(clean_client_id) > 20 else "INVALID"
-            logger.info(f"Using sanitized Gmail Client ID: {masked_id}")
-            
+            access_token = token_doc.get('access_token')
+            refresh_token = token_doc.get('refresh_token')
+            token_uri = 'https://oauth2.googleapis.com/token'
+            client_id = (GMAIL_CLIENT_ID or '').strip().strip("'").strip('"')
+            client_secret = (GMAIL_CLIENT_SECRET or '').strip().strip("'").strip('"')
+            if not client_id or not client_secret:
+                logger.error("Gmail client credentials missing")
+                return None
             creds = Credentials(
-                token=None,
-                refresh_token=clean_refresh,
+                token=access_token,
+                refresh_token=refresh_token,
                 token_uri=token_uri,
-                client_id=clean_client_id,
-                client_secret=clean_secret,
+                client_id=client_id,
+                client_secret=client_secret,
             )
+            # Refresh if expired or token missing
+            try:
+                expiry = token_doc.get('expiry')
+                if not access_token or not expiry or (isinstance(expiry, str) and datetime.fromisoformat(expiry) <= datetime.utcnow()) or (hasattr(expiry, 'timestamp') and expiry <= datetime.utcnow()):
+                    creds.refresh(Request())
+                    new_token = creds.token
+                    # Google returns expiry inside creds; approximate 55 minutes if not present
+                    expires_in = 3300
+                    upsert_gmail_token(user_id, token_doc.get('gmail_email') or '', new_token, refresh_token, expires_in)
+                    logger.info(f"Refreshed Gmail token for user {user_id}")
+            except Exception as re:
+                logger.warning(f"Gmail token refresh skipped/failed for user {user_id}: {str(re)}")
             service = build('gmail', 'v1', credentials=creds, cache_discovery=False)
-            
             profile = service.users().getProfile(userId="me").execute()
-            logger.info(f"Gmail authenticated as: {profile['emailAddress']}")
-            
-            creds = service._http.credentials
-            logger.info(f"Gmail token scopes: {creds.scopes}")
-
+            logger.info(f"Gmail authenticated as: {profile.get('emailAddress')}")
             return service
         except Exception as e:
-            logger.error(f"Gmail API initialization failed: {str(e)}")
+            logger.error(f"Gmail service build failed for user {user_id}: {str(e)}")
             return None
 
     @staticmethod
@@ -126,12 +120,6 @@ class EmailListenerService:
             stats['status'] = 'simulation_mode'
             return stats
 
-        service = EmailListenerService.connect_gmail()
-        if not service:
-            stats['status'] = 'failed'
-            stats['errors'].append("Failed to connect to Gmail API")
-            return stats
-
         db = MongoDB.get_db()
         consents = EmailListenerService.get_consented_users()
         stats['consented_users'] = len(consents)
@@ -142,9 +130,18 @@ class EmailListenerService:
             
         for consent in consents:
             try:
+                service = EmailListenerService.get_gmail_service(consent['userId'])
+                if not service:
+                    logger.info(f"Skipping user {consent['userId']}: Gmail not authorized")
+                    continue
                 # Build least-privilege query
                 # Enforce sender restriction: from:gaurimhaisne@gmail.com
-                query = 'from:gaurimhaisne@gmail.com has:attachment filename:pdf in:anywhere'
+                query = (
+                    "from:gaurimhaisne@gmail.com "
+                    "has:attachment "
+                    "filename:pdf "
+                    "is:unread"
+                )
                 # if EMAIL_REQUIRE_SUBJECT_KEYWORDS:
                 #     keywords = '(subject:statement OR subject:"account summary" OR subject:"monthly statement")'
                 #     query = f'{query} {keywords}'
@@ -157,24 +154,63 @@ class EmailListenerService:
                 #     sender_filters = ' OR '.join([f'from:{s}' for s in allowed])
                 #     query = f'{query} ({sender_filters})'
                 
-                logger.info(f"Checking Gmail with query: {query}")
+                logger.info(f"Checking Gmail for user {consent['userId']} with query: {query}")
                 messages_list = service.users().messages().list(userId='me', q=query).execute()
                 msgs = messages_list.get('messages', [])
                 logger.info(f"Query returned {len(msgs)} messages.")
                 stats['emails_found'] += len(msgs)
                 
+                if not msgs and not EmailListenerService._debug_unread_done:
+                    try:
+                        dbg = service.users().messages().list(userId='me', q="is:unread").execute()
+                        dbg_msgs = dbg.get('messages', [])
+                        logger.info(f"[DEBUG] is:unread returned {len(dbg_msgs)} messages")
+                        if dbg_msgs:
+                            sample_ids = [m['id'] for m in dbg_msgs[:5]]
+                            logger.info(f"[DEBUG] Sample unread IDs: {', '.join(sample_ids)}")
+                            for sid in sample_ids:
+                                try:
+                                    dmsg = service.users().messages().get(userId='me', id=sid, format='full').execute()
+                                    headers = dmsg.get('payload', {}).get('headers', [])
+                                    hdr = {h['name'].lower(): h['value'] for h in headers}
+                                    frm = hdr.get('from', '')
+                                    subj = hdr.get('subject', '')
+                                    payload = dmsg.get('payload', {}) or {}
+                                    filenames = []
+                                    stack = [payload]
+                                    while stack:
+                                        p = stack.pop()
+                                        fn = (p.get('filename') or '')
+                                        if fn:
+                                            filenames.append(fn)
+                                        for sp in (p.get('parts') or []):
+                                            stack.append(sp)
+                                    logger.info(f"[DEBUG] Unread sample From='{frm}' Subject='{subj}' Attachments={filenames}")
+                                except Exception as de:
+                                    logger.error(f"[DEBUG] Failed to inspect unread sample {sid}: {str(de)}")
+                            try:
+                                subqs = [
+                                    "from:gaurimhaisne@gmail.com is:unread",
+                                    "has:attachment is:unread",
+                                    "filename:pdf is:unread",
+                                    "from:gaurimhaisne@gmail.com has:attachment is:unread",
+                                    "from:gaurimhaisne@gmail.com filename:pdf is:unread",
+                                    "has:attachment filename:pdf is:unread",
+                                ]
+                                for sq in subqs:
+                                    r = service.users().messages().list(userId='me', q=sq).execute()
+                                    c = len(r.get('messages', []))
+                                    logger.info(f"[DEBUG] Subquery '{sq}' returned {c} messages")
+                            except Exception as se:
+                                logger.error(f"[DEBUG] Subquery checks failed: {str(se)}")
+                        EmailListenerService._debug_unread_done = True
+                    except Exception as e:
+                        logger.error(f"[DEBUG] is:unread check failed: {str(e)}")
+                
                 if not msgs:
                     continue
-                
-                # Fetch latest consent to check processed IDs
-                current_consent = db[EMAIL_CONSENT_COLLECTION].find_one({'_id': consent['_id']})
-                processed_ids = set(current_consent.get('processedMessageIds', []))
 
                 for m in msgs:
-                    # if m['id'] in processed_ids:
-                    #     logger.info(f"Skipping message {m['id']} (already processed)")
-                    #     continue
-
                     stats['emails_processed'] += 1
                     try:
                         msg = service.users().messages().get(userId='me', id=m['id'], format='full').execute()
@@ -221,20 +257,32 @@ class EmailListenerService:
                                     
                         payload = msg.get('payload', {}) or {}
                         pdf_count = 0
+                        any_success = False
                         for fname, content in _yield_pdfs(payload):
                             pdf_count += 1
                             stats['pdfs_processed'] += 1
-                            logger.info(f"Processing PDF attachment: {fname}")
+                            logger.info(f"PDF found: {fname}")
                             
                             with tempfile.TemporaryDirectory() as temp_dir:
                                 path = os.path.join(temp_dir, fname)
                                 with open(path, 'wb') as f:
                                     f.write(content)
                                 user_id = consent['userId']
+                                
                                 result = PDFProcessor.process_pdf_to_mongodb(path, user_id)
                                 if result.get('success'):
-                                    EmailListenerService._generate_and_send_report(result, path, consent)
-                                    stats['reports_sent'] += 1
+                                    try:
+                                        EmailListenerService.generate_and_send_report(
+                                            result,
+                                            path,
+                                            mailbox_email or consent.get('email')
+                                        )
+                                        stats['reports_sent'] += 1
+                                        any_success = True
+                                    except Exception as e:
+                                        err = f"Summary generation/email failed for {fname}: {str(e)}"
+                                        stats['errors'].append(err)
+                                        logger.error(err)
                                 else:
                                     err = f"PDF processing failed for {fname}: {result.get('error')}"
                                     stats['errors'].append(err)
@@ -243,18 +291,18 @@ class EmailListenerService:
                         if pdf_count == 0:
                              logger.info(f"No PDF attachments found in email '{subject}'")
 
-                        # Mark message as processed
-                        db[EMAIL_CONSENT_COLLECTION].update_one(
-                            {'_id': consent['_id']},
-                            {'$addToSet': {'processedMessageIds': m['id']}}
-                        )
-                        
-                        # Mark as read
-                        service.users().messages().modify(
-                            userId="me",
-                            id=m['id'],
-                            body={"removeLabelIds": ["UNREAD"]}
-                        ).execute()
+                        # Mark message as processed and read ONLY after successful processing + summary email
+                        if any_success:
+                            db[EMAIL_CONSENT_COLLECTION].update_one(
+                                {'_id': consent['_id']},
+                                {'$addToSet': {'processedMessageIds': m['id']}}
+                            )
+                            
+                            service.users().messages().modify(
+                                userId="me",
+                                id=m['id'],
+                                body={"removeLabelIds": ["UNREAD"]}
+                            ).execute()
                     except Exception as e:
                         err_msg = f"Error processing message {m['id']}: {str(e)}"
                         logger.error(err_msg)
@@ -299,7 +347,7 @@ class EmailListenerService:
                 continue
                 
             # It's a PDF. Process it.
-            logger.info(f"Found PDF attachment: {filename}")
+            logger.info(f"PDF found: {filename}")
             
             with tempfile.TemporaryDirectory() as temp_dir:
                 file_path = os.path.join(temp_dir, filename)
@@ -313,7 +361,7 @@ class EmailListenerService:
                     
                     if result.get('success'):
                         # Generate Report
-                        EmailListenerService._generate_and_send_report(result, file_path, user_consent)
+                        EmailListenerService.generate_and_send_report(result, file_path, user_consent)
                     else:
                         logger.error(f"PDF Processing failed for {filename}")
                         
@@ -321,21 +369,90 @@ class EmailListenerService:
                     logger.error(f"Error processing PDF {filename}: {str(e)}")
 
     @staticmethod
-    def _generate_and_send_report(process_result, original_pdf_path, user_consent):
-        """Generate financial report and send back to user"""
+    def generate_and_send_report(process_result, original_pdf_path, user_consent):
+        """
+        Generate financial report and send back to user.
+        user_consent can be a dict (from DB) or a string (email address).
+        This method is static to avoid instantiation issues.
+        """
         db = MongoDB.get_db()
+        
+        # Determine email address
+        if isinstance(user_consent, str):
+            to_email = user_consent
+        else:
+            to_email = user_consent.get('email')
+            
+        if not to_email:
+            logger.error("Cannot send report: No email address provided")
+            return
+            
+        logger.info(f"Report generation triggered for {to_email}")
         
         # Fetch data for summary
         statement_id = ObjectId(process_result['statementId'])
         statement = db[STATEMENTS_COLLECTION].find_one({'_id': statement_id})
-        transactions = list(db[TRANSACTIONS_COLLECTION].find({'statement_id': statement_id}))
+        transactions = list(db[TRANSACTIONS_COLLECTION].find({'statementId': statement_id}))
         
         # Generate AI Summary
         summary = generate_expense_summary(statement, transactions)
         
-        # Prepare data for report
-        report_data = process_result.copy()
-        report_data['summary'] = summary
+        # Prepare data for report aligned with frontend PDF layout
+        # Transform transactions to debit/credit form and compute stats
+        txns_sorted = sorted(transactions, key=lambda t: t.get('date') or datetime.min)
+        transformed_txns = []
+        total_debit = 0.0
+        total_credit = 0.0
+        category_totals = {}
+        final_balance = txns_sorted[-1].get('balance', 0) if txns_sorted else 0
+        
+        for t in txns_sorted:
+            amount = float(t.get('amount', 0) or 0)
+            direction = (t.get('direction') or '').lower()
+            debit = amount if direction == 'debit' else 0.0
+            credit = amount if direction == 'credit' else 0.0
+            total_debit += debit
+            total_credit += credit
+            cat = t.get('category') or 'Uncategorized'
+            category_totals[cat] = {
+                'debit': (category_totals.get(cat, {}).get('debit', 0) + debit),
+                'count': (category_totals.get(cat, {}).get('count', 0) + 1)
+            }
+            transformed_txns.append({
+                'date': t.get('date'),
+                'description': t.get('description'),
+                'category': cat,
+                'debit': debit,
+                'credit': credit,
+                'balance': t.get('balance', 0)
+            })
+        
+        category_breakdown = [
+            {'category': k, 'debit': v['debit'], 'count': v['count']}
+            for k, v in category_totals.items()
+        ]
+        category_breakdown.sort(key=lambda x: x['debit'], reverse=True)
+        
+        report_data = {
+            'report_title': 'Bank Statement Summary Report',
+            'generated_at': datetime.now().isoformat(),
+            'bank_details': {
+                'bank_name': statement.get('bankType', 'Unknown'),
+                'file_name': statement.get('fileName', 'Untitled'),
+                'upload_date': statement.get('uploadDate') or (statement.get('createdAt').isoformat() if statement.get('createdAt') else None),
+                'account_number': statement.get('accountNumber'),
+                'account_holder': statement.get('accountHolder')
+            },
+            'financial_summary': {
+                'total_credit': total_credit,
+                'total_debit': total_debit,
+                'net_flow': total_credit - total_debit,
+                'final_balance': abs(final_balance)
+            },
+            'category_breakdown': category_breakdown,
+            'transactions': transformed_txns,
+            'summary': summary
+        }
         
         # Generate PDF Report
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -346,7 +463,7 @@ class EmailListenerService:
             
             # Send Email
             EmailListenerService._send_email(
-                to_email=user_consent['email'],
+                to_email=to_email,
                 subject="Your BankFusion Financial Summary",
                 body="Your bank statement has been successfully processed by BankFusion.\nPlease find your financial summary attached.",
                 attachment_path=report_path
@@ -376,7 +493,10 @@ class EmailListenerService:
     def _send_email_via_gmail(to_email, subject, body, attachment_path=None):
         """Fallback email send using Gmail API"""
         try:
-            service = EmailListenerService.connect_gmail()
+            db = MongoDB.get_db()
+            consent = db[EMAIL_CONSENT_COLLECTION].find_one({'email': to_email, 'isActive': True})
+            user_id = consent.get('userId') if consent else None
+            service = EmailListenerService.get_gmail_service(user_id) if user_id else None
             if not service:
                 logger.error("Gmail service not available; cannot send email.")
                 return
@@ -448,7 +568,7 @@ class EmailListenerService:
             result = PDFProcessor.process_pdf_to_mongodb(pdf_path, user_id)
             
             if result.get('success'):
-                EmailListenerService._generate_and_send_report(result, pdf_path, user_consent)
+                EmailListenerService.generate_and_send_report(result, pdf_path, user_consent.get('email'))
                 return {'success': True, 'message': 'Processed and report sent'}
             else:
                 return {'success': False, 'message': 'Processing failed'}

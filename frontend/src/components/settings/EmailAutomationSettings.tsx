@@ -50,18 +50,10 @@ export function EmailAutomationSettings() {
     try {
       const response = await flaskApi.saveEmailConsent(email);
       if (response.success) {
-        setStatus('active');
         toast({
           title: "Success",
-          description: "Email automation enabled successfully. Checking for emails...",
+          description: "Email automation enabled successfully.",
         });
-        
-        // Trigger email check immediately
-        try {
-          await flaskApi.triggerEmailCheck();
-        } catch (e) {
-          console.error("Failed to trigger email check", e);
-        }
       } else {
         toast({
           title: "Error",

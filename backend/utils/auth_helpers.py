@@ -51,6 +51,29 @@ def extract_user_id_from_token(token: str) -> Optional[str]:
         logger.error(f"Error extracting user_id from token: {str(e)}")
         return None
 
+def extract_user_email_from_token(token: str) -> Optional[str]:
+    """
+    Extract user email from Supabase JWT token by decoding it
+    Returns email if valid, None otherwise
+    """
+    try:
+        parts = token.split('.')
+        if len(parts) != 3:
+            return None
+        
+        payload = parts[1]
+        padding = len(payload) % 4
+        if padding:
+            payload += '=' * (4 - padding)
+        
+        decoded = base64.urlsafe_b64decode(payload)
+        payload_data = json.loads(decoded)
+        
+        return payload_data.get('email')
+    except Exception as e:
+        logger.error(f"Error extracting email from token: {str(e)}")
+        return None
+
 def get_user_id_from_request(request) -> Optional[str]:
     """
     Extract user_id from Authorization header in Flask request
@@ -58,12 +81,33 @@ def get_user_id_from_request(request) -> Optional[str]:
     """
     try:
         auth_header = request.headers.get('Authorization')
+        if auth_header and auth_header.startswith('Bearer '):
+            token = auth_header.split('Bearer ')[1]
+            return extract_user_id_from_token(token)
+            
+        # Fallback: check query parameter 'token' for browser redirects
+        token_param = request.args.get('token')
+        if token_param:
+            return extract_user_id_from_token(token_param)
+            
+        return None
+    except Exception as e:
+        logger.error(f"Error getting user_id from request: {str(e)}")
+        return None
+
+def get_user_email_from_request(request) -> Optional[str]:
+    """
+    Extract user email from Authorization header in Flask request
+    Returns email if valid token found, None otherwise
+    """
+    try:
+        auth_header = request.headers.get('Authorization')
         if not auth_header or not auth_header.startswith('Bearer '):
             return None
         
         token = auth_header.split('Bearer ')[1]
-        return extract_user_id_from_token(token)
+        return extract_user_email_from_token(token)
     except Exception as e:
-        logger.error(f"Error getting user_id from request: {str(e)}")
+        logger.error(f"Error getting user_email from request: {str(e)}")
         return None
 
