@@ -53,7 +53,7 @@ class EmailListenerService:
         return list(db[EMAIL_CONSENT_COLLECTION].find({'isActive': True, 'consentGiven': True}))
 
     @staticmethod
-    def get_gmail_service(user_id: str):
+    def get_gmail_service(user_id: str, silent_if_no_token: bool = False):
         """Create a Gmail service for a specific user using stored tokens"""
         try:
             from google.oauth2.credentials import Credentials
@@ -61,7 +61,8 @@ class EmailListenerService:
             from google.auth.transport.requests import Request
             token_doc = get_gmail_token(user_id)
             if not token_doc:
-                logger.warning(f"No Gmail token found for user {user_id}")
+                if not silent_if_no_token:
+                    logger.warning(f"No Gmail token found for user {user_id}")
                 return None
             access_token = token_doc.get('access_token')
             refresh_token = token_doc.get('refresh_token')
@@ -130,9 +131,14 @@ class EmailListenerService:
             
         for consent in consents:
             try:
+                # Check if token exists before trying to create service to avoid warning logs
+                if not get_gmail_token(consent['userId']):
+                    logger.debug(f"Skipping user {consent['userId']}: Gmail not authorized (No token found)")
+                    continue
+
                 service = EmailListenerService.get_gmail_service(consent['userId'])
                 if not service:
-                    logger.info(f"Skipping user {consent['userId']}: Gmail not authorized")
+                    # Should be covered by above check, but just in case
                     continue
                 # Build least-privilege query
                 # Enforce sender restriction: from:gaurimhaisne@gmail.com

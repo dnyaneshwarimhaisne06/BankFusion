@@ -1,20 +1,11 @@
 # BankFusion Flask API Dependencies
 # Stable versions - tested and working
-#
-# IMPORTANT: Always activate virtual environment before installing!
-# Windows:  .venv\Scripts\activate
-# Linux/Mac: source .venv/bin/activate
-#
-# Installation:
-#   python -m pip install -r requirements.txt
-#
-# Or use setup script:
-#   python setup.py
 
 # Flask Framework
 Flask==3.1.2
 flask-cors==6.0.2
 reportlab==4.0.9
+
 # MongoDB Driver
 pymongo==4.15.5
 
@@ -24,11 +15,16 @@ python-dotenv==1.2.1
 # PDF Processing
 pdfplumber==0.11.8
 
-# OpenAI (optional, for enhanced normalization)
+# OpenAI (optional)
 openai>=1.0.0
-gunicorn
-requests
-python-dotenv==1.2.1
-google-api-python-client
-google-auth
-google-auth-oauthlib
+
+# Server (Production)
+gunicorn==23.0.0
+
+# HTTP Client
+requests==2.32.5
+
+# Google APIs
+google-api-python-client==2.187.0
+google-auth==2.47.0
+google-auth-oauthlib==1.2.3
