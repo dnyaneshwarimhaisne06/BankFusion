@@ -408,14 +408,14 @@ class EmailListenerService:
         # Fetch data for summary
         statement_id = ObjectId(process_result['statementId'])
         statement = db[STATEMENTS_COLLECTION].find_one({'_id': statement_id})
-        transactions = list(db[TRANSACTIONS_COLLECTION].find({'statement_id': statement_id}))
+        transactions = list(db[TRANSACTIONS_COLLECTION].find({'statementId': statement_id}))
         
         # Generate AI Summary
         summary = generate_expense_summary(statement, transactions)
         
         # Prepare data for report aligned with frontend PDF layout
         # Transform transactions to debit/credit form and compute stats
-        txns_sorted = sorted(transactions, key=lambda t: t.get('date') or '')
+        txns_sorted = sorted(transactions, key=lambda t: t.get('date') or datetime.min)
         transformed_txns = []
         total_debit = 0.0
         total_credit = 0.0
