@@ -81,11 +81,16 @@ def get_user_id_from_request(request) -> Optional[str]:
     """
     try:
         auth_header = request.headers.get('Authorization')
-        if not auth_header or not auth_header.startswith('Bearer '):
-            return None
-        
-        token = auth_header.split('Bearer ')[1]
-        return extract_user_id_from_token(token)
+        if auth_header and auth_header.startswith('Bearer '):
+            token = auth_header.split('Bearer ')[1]
+            return extract_user_id_from_token(token)
+            
+        # Fallback: check query parameter 'token' for browser redirects
+        token_param = request.args.get('token')
+        if token_param:
+            return extract_user_id_from_token(token_param)
+            
+        return None
     except Exception as e:
         logger.error(f"Error getting user_id from request: {str(e)}")
         return None

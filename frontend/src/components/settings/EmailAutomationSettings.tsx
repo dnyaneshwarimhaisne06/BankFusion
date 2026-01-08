@@ -50,11 +50,18 @@ export function EmailAutomationSettings() {
     try {
       const response = await flaskApi.saveEmailConsent(email);
       if (response.success) {
-        setStatus('active');
         toast({
-          title: "Success",
-          description: "Email automation enabled successfully.",
+          title: "Redirecting to Google...",
+          description: "Please authorize access to your Gmail account.",
         });
+
+        // Redirect to Gmail OAuth start endpoint
+        const { data: { session } } = await supabase.auth.getSession();
+        const token = session?.access_token;
+        
+        const apiUrl = import.meta.env.VITE_FLASK_API_URL || 'https://bankfusion.onrender.com/api';
+        const baseUrl = apiUrl.replace(/\/$/, '');
+        window.location.href = `${baseUrl}/email-automation/gmail/start?token=${token}`;
       } else {
         toast({
           title: "Error",
