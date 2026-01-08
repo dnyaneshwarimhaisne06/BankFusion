@@ -452,15 +452,29 @@ class FlaskAPI {
   }
 
   async saveEmailConsent(email: string): Promise<ApiResponse<any>> {
-    return this.request<any>('/email-automation/consent', {
-      method: 'POST',
-      body: JSON.stringify({ email }),
-    });
+    try {
+      return await this.request<any>('/email-automation/consent', {
+        method: 'POST',
+        body: JSON.stringify({ email }),
+      });
+    } catch (error: any) {
+      console.error('[Flask API] saveEmailConsent unexpected error:', error);
+      return {
+        success: false,
+        error: error.message || 'Unexpected error in saveEmailConsent',
+      };
+    }
   }
 
   async revokeEmailConsent(): Promise<ApiResponse<any>> {
     return this.request<any>('/email-automation/consent', {
       method: 'DELETE',
+    });
+  }
+
+  async triggerEmailCheck(): Promise<ApiResponse<any>> {
+    return this.request<any>('/email-automation/trigger', {
+      method: 'POST',
     });
   }
 

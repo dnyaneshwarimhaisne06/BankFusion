@@ -53,8 +53,15 @@ export function EmailAutomationSettings() {
         setStatus('active');
         toast({
           title: "Success",
-          description: "Email automation enabled successfully.",
+          description: "Email automation enabled successfully. Checking for emails...",
         });
+        
+        // Trigger email check immediately
+        try {
+          await flaskApi.triggerEmailCheck();
+        } catch (e) {
+          console.error("Failed to trigger email check", e);
+        }
       } else {
         toast({
           title: "Error",
@@ -62,10 +69,11 @@ export function EmailAutomationSettings() {
           variant: "destructive"
         });
       }
-    } catch (error) {
+    } catch (error: any) {
+      console.error("Error in handleSave:", error);
       toast({
         title: "Error",
-        description: "An unexpected error occurred.",
+        description: error?.message || "An unexpected error occurred.",
         variant: "destructive"
       });
     } finally {
