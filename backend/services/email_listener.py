@@ -143,9 +143,21 @@ class EmailListenerService:
             
         for consent in consents:
             try:
+                current_consent = db[EMAIL_CONSENT_COLLECTION].find_one({'_id': consent['_id']})
+                
                 # Build least-privilege query
                 # Enforce sender restriction: from:gaurimhaisne@gmail.com
-                query = 'from:gaurimhaisne@gmail.com has:attachment filename:pdf in:anywhere'
+                query = 'from:gaurimhaisne@gmail.com has:attachment filename:pdf in:anywhere is:unread'
+                
+                # Add date filter to avoid old emails if we have lastChecked
+                try:
+                    last_checked = (current_consent or {}).get('lastChecked')
+                    if last_checked:
+                        dt = datetime.fromisoformat(last_checked)
+                        after_str = dt.strftime('%Y/%m/%d')
+                        query = f"{query} after:{after_str}"
+                except Exception:
+                    pass
                 # if EMAIL_REQUIRE_SUBJECT_KEYWORDS:
                 #     keywords = '(subject:statement OR subject:"account summary" OR subject:"monthly statement")'
                 #     query = f'{query} {keywords}'
@@ -167,8 +179,6 @@ class EmailListenerService:
                 if not msgs:
                     continue
                 
-                # Fetch latest consent to check processed IDs
-                current_consent = db[EMAIL_CONSENT_COLLECTION].find_one({'_id': consent['_id']})
                 processed_ids = set(current_consent.get('processedMessageIds', []))
 
                 for m in msgs:
@@ -222,10 +232,11 @@ class EmailListenerService:
                                     
                         payload = msg.get('payload', {}) or {}
                         pdf_count = 0
+                        any_success = False
                         for fname, content in _yield_pdfs(payload):
                             pdf_count += 1
                             stats['pdfs_processed'] += 1
-                            logger.info(f"Processing PDF attachment: {fname}")
+                            logger.info(f"PDF found: {fname}")
                             
                             with tempfile.TemporaryDirectory() as temp_dir:
                                 path = os.path.join(temp_dir, fname)
@@ -235,8 +246,14 @@ class EmailListenerService:
                                 
                                 result = PDFProcessor.process_pdf_to_mongodb(path, user_id)
                                 if result.get('success'):
-                                    EmailListenerService.generate_and_send_report(result, path, consent.get('email'))
-                                    stats['reports_sent'] += 1
+                                    try:
+                                        EmailListenerService.generate_and_send_report(result, path, consent.get('email'))
+                                        stats['reports_sent'] += 1
+                                        any_success = True
+                                    except Exception as e:
+                                        err = f"Summary generation/email failed for {fname}: {str(e)}"
+                                        stats['errors'].append(err)
+                                        logger.error(err)
                                 else:
                                     err = f"PDF processing failed for {fname}: {result.get('error')}"
                                     stats['errors'].append(err)
@@ -245,18 +262,18 @@ class EmailListenerService:
                         if pdf_count == 0:
                              logger.info(f"No PDF attachments found in email '{subject}'")
 
-                        # Mark message as processed
-                        db[EMAIL_CONSENT_COLLECTION].update_one(
-                            {'_id': consent['_id']},
-                            {'$addToSet': {'processedMessageIds': m['id']}}
-                        )
-                        
-                        # Mark as read
-                        service.users().messages().modify(
-                            userId="me",
-                            id=m['id'],
-                            body={"removeLabelIds": ["UNREAD"]}
-                        ).execute()
+                        # Mark message as processed and read ONLY after successful processing + summary email
+                        if any_success:
+                            db[EMAIL_CONSENT_COLLECTION].update_one(
+                                {'_id': consent['_id']},
+                                {'$addToSet': {'processedMessageIds': m['id']}}
+                            )
+                            
+                            service.users().messages().modify(
+                                userId="me",
+                                id=m['id'],
+                                body={"removeLabelIds": ["UNREAD"]}
+                            ).execute()
                     except Exception as e:
                         err_msg = f"Error processing message {m['id']}: {str(e)}"
                         logger.error(err_msg)
@@ -301,7 +318,7 @@ class EmailListenerService:
                 continue
                 
             # It's a PDF. Process it.
-            logger.info(f"Found PDF attachment: {filename}")
+            logger.info(f"PDF found: {filename}")
             
             with tempfile.TemporaryDirectory() as temp_dir:
                 file_path = os.path.join(temp_dir, filename)
