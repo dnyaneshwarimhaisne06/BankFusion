@@ -17,7 +17,7 @@ from email.message import EmailMessage
 
 from db.mongo import MongoDB
 from db.email_schema import EMAIL_CONSENT_COLLECTION
-from db.gmail_tokens import get_gmail_token
+from db.gmail_tokens import get_gmail_token, upsert_gmail_token
 from services.pdf_processor import PDFProcessor
 from services.ai_summary import generate_expense_summary
 from services.report_generator import ReportGenerator
@@ -58,6 +58,7 @@ class EmailListenerService:
         try:
             from google.oauth2.credentials import Credentials
             from googleapiclient.discovery import build
+            from google.auth.transport.requests import Request
             token_doc = get_gmail_token(user_id)
             if not token_doc:
                 logger.warning(f"No Gmail token found for user {user_id}")
@@ -77,6 +78,18 @@ class EmailListenerService:
                 client_id=client_id,
                 client_secret=client_secret,
             )
+            # Refresh if expired or token missing
+            try:
+                expiry = token_doc.get('expiry')
+                if not access_token or not expiry or (isinstance(expiry, str) and datetime.fromisoformat(expiry) <= datetime.utcnow()) or (hasattr(expiry, 'timestamp') and expiry <= datetime.utcnow()):
+                    creds.refresh(Request())
+                    new_token = creds.token
+                    # Google returns expiry inside creds; approximate 55 minutes if not present
+                    expires_in = 3300
+                    upsert_gmail_token(user_id, token_doc.get('gmail_email') or '', new_token, refresh_token, expires_in)
+                    logger.info(f"Refreshed Gmail token for user {user_id}")
+            except Exception as re:
+                logger.warning(f"Gmail token refresh skipped/failed for user {user_id}: {str(re)}")
             service = build('gmail', 'v1', credentials=creds, cache_discovery=False)
             profile = service.users().getProfile(userId="me").execute()
             logger.info(f"Gmail authenticated as: {profile.get('emailAddress')}")

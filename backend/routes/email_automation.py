@@ -96,6 +96,32 @@ def gmail_auth_url():
     url = f"https://accounts.google.com/o/oauth2/v2/auth?{urlencode(params)}"
     return jsonify({'auth_url': url})
 
+@email_bp.route('/gmail/start', methods=['GET'])
+def gmail_start():
+    """Redirect user to Google OAuth with forced consent and offline access"""
+    user_id = get_user_id_from_request(request)
+    if not user_id:
+        return jsonify({'error': 'Unauthorized'}), 401
+    client_id = os.getenv('GMAIL_CLIENT_ID')
+    redirect_uri = os.getenv('GMAIL_REDIRECT_URI')
+    if not client_id or not redirect_uri:
+        return jsonify({'error': 'Gmail OAuth not configured'}), 500
+    scope = "https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.modify https://www.googleapis.com/auth/gmail.send"
+    params = {
+        'client_id': client_id,
+        'redirect_uri': redirect_uri,
+        'response_type': 'code',
+        'scope': scope,
+        'access_type': 'offline',
+        'prompt': 'consent',
+        'include_granted_scopes': 'true',
+        'state': user_id
+    }
+    from urllib.parse import urlencode
+    url = f"https://accounts.google.com/o/oauth2/v2/auth?{urlencode(params)}"
+    from flask import redirect
+    return redirect(url)
+
 @email_bp.route('/gmail/callback', methods=['GET'])
 def gmail_callback():
     """Exchange authorization code for tokens and store per-user"""
@@ -146,6 +172,7 @@ def gmail_callback():
     except Exception:
         email_addr = None
     upsert_gmail_token(user_id, email_addr or '', access_token, refresh_token, expires_in)
+    logger.info(f"Gmail OAuth saved for user {user_id} email {email_addr}")
     return jsonify({'success': True, 'email': email_addr})
 
 @email_bp.route('/simulate', methods=['POST'])
