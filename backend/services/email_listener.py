@@ -143,21 +143,14 @@ class EmailListenerService:
             
         for consent in consents:
             try:
-                current_consent = db[EMAIL_CONSENT_COLLECTION].find_one({'_id': consent['_id']})
-                
                 # Build least-privilege query
                 # Enforce sender restriction: from:gaurimhaisne@gmail.com
-                query = 'from:gaurimhaisne@gmail.com has:attachment filename:pdf in:anywhere is:unread'
-                
-                # Add date filter to avoid old emails if we have lastChecked
-                try:
-                    last_checked = (current_consent or {}).get('lastChecked')
-                    if last_checked:
-                        dt = datetime.fromisoformat(last_checked)
-                        after_str = dt.strftime('%Y/%m/%d')
-                        query = f"{query} after:{after_str}"
-                except Exception:
-                    pass
+                query = (
+                    "from:gaurimhaisne@gmail.com "
+                    "has:attachment "
+                    "filename:pdf "
+                    "is:unread"
+                )
                 # if EMAIL_REQUIRE_SUBJECT_KEYWORDS:
                 #     keywords = '(subject:statement OR subject:"account summary" OR subject:"monthly statement")'
                 #     query = f'{query} {keywords}'
@@ -178,14 +171,8 @@ class EmailListenerService:
                 
                 if not msgs:
                     continue
-                
-                processed_ids = set(current_consent.get('processedMessageIds', []))
 
                 for m in msgs:
-                    if m['id'] in processed_ids:
-                        logger.info(f"Skipping message {m['id']} (already processed)")
-                        continue
-
                     stats['emails_processed'] += 1
                     try:
                         msg = service.users().messages().get(userId='me', id=m['id'], format='full').execute()
